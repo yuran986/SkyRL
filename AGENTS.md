@@ -25,6 +25,7 @@ Tests use pytest. Name files `test_*.py` and place them near the matching subsys
 ## Commit & Pull Request Guidelines
 
 Recent commits use bracketed scopes, for example `[bug] Fix ...`, `[qoc][trainer] ...`, or `[cleanup] ...`. Keep subjects imperative and concise. Pull requests should describe the change, list verification commands, link related issues, and call out GPU, data, or dependency requirements. Include screenshots only for documentation or UI-facing changes.
+After each code or documentation modification, create a git commit so the work is checkpointed.
 
 ## Security & Configuration Tips
 

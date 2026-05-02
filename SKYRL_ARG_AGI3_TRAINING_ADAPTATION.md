@@ -36,7 +36,7 @@ parquet/json/jsonl 数据
 
 - 导入 `arc_agi` 和 `arcengine.GameAction`。
 - 使用 `arc = arc_agi.Arcade()` 创建客户端。
-- 使用 `env = arc.make(task_id, render_mode=...)` 或 `arc.make(task_id, renderer=...)` 创建游戏环境。
+- 使用 `env = arc.make(task_id, renderer=...)` 创建游戏环境；训练时传 no-op renderer，避免 terminal 输出污染日志。
 - 通过 `env.action_space` 获取可用动作。
 - 通过 `env.observation_space` 读取当前状态和 frame。
 - 通过 `env.step(GameAction.ACTION1)` 或 `env.step(GameAction.ACTION6, data={"x": 32, "y": 32})` 执行动作。
@@ -93,7 +93,7 @@ class ArcAgi3Env(BaseTextEnv):
 
 - `task_id`：例如 `ft09`、`ls20`。
 - `seed`：可选，用于可复现实验。
-- `render_mode`：建议训练用 `terminal-fast` 或禁用重渲染。
+- `renderer`：训练时使用空 renderer，不向 terminal 打印帧。
 - `operation_mode`：本地开发建议 `OFFLINE`。
 - `environments_dir`：本地环境文件目录，例如 `/home/users/yz1051/rlm/environment_files`。
 - `max_turns`：由 SkyRL generator 注入。
@@ -109,7 +109,7 @@ arc = arc_agi.Arcade(
     operation_mode=OperationMode.OFFLINE,
     environments_dir=environments_dir,
 )
-env = arc.make(task_id, seed=seed, render_mode=render_mode)
+env = arc.make(task_id, seed=seed, renderer=noop_renderer)
 ```
 
 ### 5.2 动作协议
@@ -164,13 +164,13 @@ Choose exactly one next action inside <action>...</action>.
 
 ### 5.4 Reward 设计
 
-GRPO 最适合 outcome reward。建议第一版：
+当前 integration 采用两层 reward：
 
-- 成功通关：`+1.0`。
-- `levels_completed` 增加：小正 reward，例如 `+0.1`。
-- 分数增加：按差分归一化，例如 `score_delta / 254`。
-- 非法动作：`-0.05`。
-- 超步数或 GAME_OVER：`0` 或小负值，避免过强惩罚导致探索崩。
+- 大奖励：`levels_completed` 增长，或底层 ARC 环境返回 `done=True`。
+- 中等奖励：产生了非空且有解释价值的相邻帧 diff。
+- 非法动作：小负奖励，默认 `-0.05`。
+
+“有解释价值的 diff”第一版用启发式判断：相邻帧变化数在 `[min_meaningful_diff_changes, max_meaningful_diff_changes]` 之间，默认是 `[1, 512]`。这样避免奖励完全无变化的动作，也避免把整屏大面积重绘当成高质量探索信号。
 
 注意：`step_wise_trajectories=True` 当前主要用最后一步轨迹 advantage 广播到每步。第一版建议保持：
 
@@ -212,7 +212,6 @@ task_id: str
 seed: int | null
 split: str
 max_steps: int
-render_mode: str
 operation_mode: str
 environments_dir: str | null
 ```
@@ -280,7 +279,7 @@ trainer.algorithm.dynamic_sampling.type="filter"
 
 第一阶段尽量不改 trainer，只新增 integration。后续可能需要：
 
-1. 在 `SkyRLGymConfig` 增加 `arc_agi3` 配置 dataclass，集中放 `environments_dir`、`operation_mode`、`render_mode`、`timeout`。
+1. 在 `SkyRLGymConfig` 增加 `arc_agi3` 配置 dataclass，集中放 `environments_dir`、`operation_mode`、`timeout`。
 2. 增强 `SkyRLGymGenerator` 的 observation/debug hooks，方便保存完整 frame，但不污染模型上下文。
 3. 如果要直接训练 VLM，接入 `SkyRLVLMGymGenerator`，让环境返回图像特征或渲染帧。
 4. 如果 ARC 环境初始化慢，实现 env pool 或调小 `environment.skyrl_gym.max_env_workers`。

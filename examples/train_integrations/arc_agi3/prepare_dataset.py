@@ -25,7 +25,6 @@ def build_rows(
     target_size: int,
     environments_dir: str | None,
     operation_mode: str,
-    render_mode: str,
     max_steps: int,
     prompt: str,
 ) -> list[dict]:
@@ -45,7 +44,6 @@ def build_rows(
                 "seed": seed if seed is not None else idx,
                 "split": split,
                 "max_steps": max_steps,
-                "render_mode": render_mode,
                 "operation_mode": operation_mode,
                 "environments_dir": environments_dir,
             }
@@ -62,7 +60,6 @@ def main() -> None:
     parser.add_argument("--train_size", type=int, default=32)
     parser.add_argument("--val_size", type=int, default=8)
     parser.add_argument("--max_steps", type=int, default=int(os.getenv("ARC_AGI3_MAX_STEPS", "64")))
-    parser.add_argument("--render_mode", default=os.getenv("ARC_AGI3_RENDER_MODE", "terminal-fast"))
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
     parser.add_argument("--environments_dir", default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
@@ -80,7 +77,6 @@ def main() -> None:
         target_size=args.train_size,
         environments_dir=args.environments_dir,
         operation_mode=args.operation_mode,
-        render_mode=args.render_mode,
         max_steps=args.max_steps,
         prompt=args.prompt,
     )
@@ -91,7 +87,6 @@ def main() -> None:
         target_size=args.val_size,
         environments_dir=args.environments_dir,
         operation_mode=args.operation_mode,
-        render_mode=args.render_mode,
         max_steps=args.max_steps,
         prompt=args.prompt,
     )
@@ -103,4 +98,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -33,11 +33,23 @@ FRAME_COLOR_NAMES = {
 }
 
 
+def noop_renderer(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
 @dataclass
 class ParsedAction:
     name: str
     x: int | None = None
     y: int | None = None
+
+
+@dataclass
+class FrameDiffStats:
+    num_changes: int
+    bbox: tuple[int, int, int, int] | None
+    color_changes: list[tuple[Any, Any, int]]
+    examples: list[dict[str, Any]]
 
 
 def _to_plain(value: Any) -> Any:
@@ -134,11 +146,11 @@ def _grid_from_frame(frame_like: Any) -> list[list[Any]] | None:
     return None
 
 
-def _diff_summary(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> str:
+def _diff_stats(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> FrameDiffStats | None:
     prev_grid = _grid_from_frame(prev_frame)
     cur_grid = _grid_from_frame(cur_frame)
     if prev_grid is None or cur_grid is None:
-        return "frame_diff: unavailable"
+        return None
 
     changes: list[tuple[int, int, Any, Any]] = []
     h = max(len(prev_grid), len(cur_grid))
@@ -156,23 +168,35 @@ def _diff_summary(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> str
                 changes.append((x, y, before, after))
 
     if not changes:
-        return "frame_diff: num_changes=0"
+        return FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
 
     xs = [x for x, _, _, _ in changes]
     ys = [y for _, y, _, _ in changes]
     color_changes = Counter((before, after) for _, _, before, after in changes)
+    examples = [{"x": x, "y": y, "before": before, "after": after} for x, y, before, after in changes[:max_examples]]
+    return FrameDiffStats(
+        num_changes=len(changes),
+        bbox=(min(xs), min(ys), max(xs), max(ys)),
+        color_changes=[(before, after, count) for (before, after), count in color_changes.most_common(8)],
+        examples=examples,
+    )
+
+
+def _diff_summary(diff_stats: FrameDiffStats | None) -> str:
+    if diff_stats is None:
+        return "frame_diff: unavailable"
+    if diff_stats.num_changes == 0:
+        return "frame_diff: num_changes=0"
+    assert diff_stats.bbox is not None
     color_text = ", ".join(
         f"{_color_name(before)}->{_color_name(after)}:{count}"
-        for (before, after), count in color_changes.most_common(8)
+        for before, after, count in diff_stats.color_changes
     )
-    examples = [
-        {"x": x, "y": y, "before": before, "after": after}
-        for x, y, before, after in changes[:max_examples]
-    ]
+    x1, y1, x2, y2 = diff_stats.bbox
     return (
-        f"frame_diff: num_changes={len(changes)} "
-        f"bbox=({min(xs)},{min(ys)})-({max(xs)},{max(ys)}) "
-        f"colors={color_text} examples={examples}"
+        f"frame_diff: num_changes={diff_stats.num_changes} "
+        f"bbox=({x1},{y1})-({x2},{y2}) "
+        f"colors={color_text} examples={diff_stats.examples}"
     )
 
 
@@ -190,17 +214,17 @@ class ArcAgi3Env(BaseTextEnv):
         self.max_turns = int(self.extras.get("max_turns", self.extras.get("max_steps", 64)))
         self.task_id = str(self.extras.get("task_id", os.getenv("ARC_AGI3_TASK_ID", "ft09")))
         self.seed = self.extras.get("seed")
-        self.render_mode = str(self.extras.get("render_mode", os.getenv("ARC_AGI3_RENDER_MODE", "terminal-fast")))
         self.operation_mode = str(
             self.extras.get("operation_mode", os.getenv("OPERATION_MODE", "OFFLINE"))
         ).upper()
         self.environments_dir = self.extras.get("environments_dir", os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
         self.levels_to_complete = int(self.extras.get("levels_to_complete", 6))
         self.invalid_action_reward = float(self.extras.get("invalid_action_reward", -0.05))
-        self.level_reward = float(self.extras.get("level_reward", 0.1))
-        self.success_reward = float(self.extras.get("success_reward", 1.0))
-        self.game_over_reward = float(self.extras.get("game_over_reward", 0.0))
-        self.score_reward_scale = float(self.extras.get("score_reward_scale", 0.0))
+        self.level_reward = float(self.extras.get("level_reward", 1.0))
+        self.done_reward = float(self.extras.get("done_reward", 1.0))
+        self.meaningful_diff_reward = float(self.extras.get("meaningful_diff_reward", 0.05))
+        self.min_meaningful_diff_changes = int(self.extras.get("min_meaningful_diff_changes", 1))
+        self.max_meaningful_diff_changes = int(self.extras.get("max_meaningful_diff_changes", 512))
 
         self.arc = None
         self.env = None
@@ -211,6 +235,7 @@ class ArcAgi3Env(BaseTextEnv):
         self.last_frame = None
         self.last_score = 0.0
         self.last_levels_completed = 0
+        self.last_diff_stats: FrameDiffStats | None = None
         self.done = False
         self.success = False
         self.game_over = False
@@ -236,7 +261,7 @@ class ArcAgi3Env(BaseTextEnv):
             arcade_kwargs["environments_dir"] = str(Path(self.environments_dir).expanduser())
         self.arc = arc_agi.Arcade(**arcade_kwargs)
 
-        make_kwargs: dict[str, Any] = {"render_mode": self.render_mode}
+        make_kwargs: dict[str, Any] = {"renderer": noop_renderer}
         if self.seed not in (None, ""):
             make_kwargs["seed"] = int(self.seed)
         self.env = self.arc.make(self.task_id, **make_kwargs)
@@ -266,15 +291,14 @@ class ArcAgi3Env(BaseTextEnv):
             self.invalid_actions += 1
 
         if step_output is not None:
-            reward = self._compute_reward(step_output)
+            current_frame = _to_plain(getattr(step_output, "frame", None))
+            diff_stats = _diff_stats(self.last_frame, current_frame)
+            reward = self._compute_reward(step_output, diff_stats)
             self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
             self.success = self._is_success(step_output)
             self.game_over = self._is_game_over(step_output)
-            if self.success:
-                reward += self.success_reward
-            elif self.game_over and self.done:
-                reward += self.game_over_reward
         else:
+            diff_stats = None
             reward = self.invalid_action_reward
             self.done = self.turns >= self.max_turns
 
@@ -283,6 +307,7 @@ class ArcAgi3Env(BaseTextEnv):
             valid_action=valid_action,
             error=error,
             step_output=step_output,
+            diff_stats=diff_stats,
         )
         if self.done:
             observations: ConversationType = []
@@ -313,14 +338,28 @@ class ArcAgi3Env(BaseTextEnv):
             return self.env.step(action_enum, data={"x": int(parsed.x), "y": int(parsed.y)})
         return self.env.step(action_enum)
 
-    def _compute_reward(self, observation: Any) -> float:
-        score = self._read_score(observation)
+    def _compute_reward(self, observation: Any, diff_stats: FrameDiffStats | None) -> float:
         levels_completed = self._read_levels_completed(observation)
-        score_delta = score - self.last_score
         level_delta = max(0, levels_completed - self.last_levels_completed)
-        self.last_score = score
+        done = bool(getattr(observation, "done", False))
+
+        reward = 0.0
+        if level_delta > 0:
+            reward += level_delta * self.level_reward
+        if done:
+            reward += self.done_reward
+        if self._has_meaningful_diff(diff_stats):
+            reward += self.meaningful_diff_reward
+
+        self.last_score = self._read_score(observation)
         self.last_levels_completed = levels_completed
-        return level_delta * self.level_reward + score_delta * self.score_reward_scale
+        self.last_diff_stats = diff_stats
+        return reward
+
+    def _has_meaningful_diff(self, diff_stats: FrameDiffStats | None) -> bool:
+        if diff_stats is None:
+            return False
+        return self.min_meaningful_diff_changes <= diff_stats.num_changes <= self.max_meaningful_diff_changes
 
     def _build_observation_text(
         self,
@@ -329,13 +368,17 @@ class ArcAgi3Env(BaseTextEnv):
         valid_action: bool | None = None,
         error: str | None = None,
         step_output: Any | None = None,
+        diff_stats: FrameDiffStats | None = None,
     ) -> str:
         source = step_output if step_output is not None else getattr(self.env, "observation_space", None)
         state = _enum_name(getattr(source, "state", None))
         levels_completed = self._read_levels_completed(source)
         score = self._read_score(source)
         current_frame = _to_plain(getattr(source, "frame", None))
-        diff = "frame_diff: initial" if initial else _diff_summary(self.last_frame, current_frame)
+        if initial:
+            diff = "frame_diff: initial"
+        else:
+            diff = _diff_summary(diff_stats if diff_stats is not None else _diff_stats(self.last_frame, current_frame))
         if current_frame is not None:
             self.last_frame = current_frame
 

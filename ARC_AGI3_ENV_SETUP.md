@@ -84,7 +84,6 @@ uv run --isolated --extra fsdp --with arc-agi --with python-dotenv -m ...
 ```bash
 OPERATION_MODE=OFFLINE
 ARC_AGI3_ENVIRONMENTS_DIR=/home/users/yz1051/rlm/environment_files
-ARC_AGI3_RENDER_MODE=terminal-fast
 ```
 
 `.env` 是本机配置，当前 `.gitignore` 已忽略它；`.env.example` 是可提交模板。后续如果要在线提交或拉取远程 game，在 `.env` 中补：
@@ -120,7 +119,7 @@ load_dotenv()
 set -a
 source .env
 set +a
-python -c "import os, arc_agi; from arc_agi import OperationMode; from arcengine import GameAction; mode=getattr(OperationMode, os.environ.get('OPERATION_MODE','OFFLINE')); arc=arc_agi.Arcade(operation_mode=mode, environments_dir=os.environ['ARC_AGI3_ENVIRONMENTS_DIR']); env=arc.make('ft09', render_mode=os.environ.get('ARC_AGI3_RENDER_MODE','terminal-fast')); obs=env.step(GameAction.ACTION6, data={'x':32,'y':32}); print(obs.state, getattr(obs, 'levels_completed', None), len(obs.frame), len(obs.frame[0]))"
+python -c "import os, arc_agi; from arc_agi import OperationMode; from arcengine import GameAction; mode=getattr(OperationMode, os.environ.get('OPERATION_MODE','OFFLINE')); arc=arc_agi.Arcade(operation_mode=mode, environments_dir=os.environ['ARC_AGI3_ENVIRONMENTS_DIR']); env=arc.make('ft09', renderer=lambda *args, **kwargs: None); obs=env.step(GameAction.ACTION6, data={'x':32,'y':32}); print(obs.state, getattr(obs, 'levels_completed', None), len(obs.frame), len(obs.frame[0]))"
 ```
 
 如果这里失败，先不要跑 SkyRL。常见问题：

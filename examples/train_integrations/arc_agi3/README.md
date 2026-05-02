@@ -18,7 +18,6 @@ Create or edit `.env`:
 ```bash
 OPERATION_MODE=OFFLINE
 ARC_AGI3_ENVIRONMENTS_DIR=/home/users/yz1051/rlm/environment_files
-ARC_AGI3_RENDER_MODE=terminal-fast
 ```
 
 ## Prepare Data
@@ -59,4 +58,3 @@ The model should emit exactly one action per turn:
 ```
 
 `ACTION6` requires `x` and `y` coordinates in `[0, 63]`.
-
