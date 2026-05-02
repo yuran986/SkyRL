@@ -204,6 +204,24 @@ def _color_name(value: Any) -> str:
     return FRAME_COLOR_NAMES.get(value, str(value))
 
 
+def _parsed_action_metadata(parsed: ParsedAction | None) -> dict[str, Any] | None:
+    if parsed is None:
+        return None
+    return {"name": parsed.name, "x": parsed.x, "y": parsed.y}
+
+
+def _diff_metadata(diff_stats: FrameDiffStats | None) -> dict[str, Any] | None:
+    if diff_stats is None:
+        return None
+    return {
+        "num_changes": diff_stats.num_changes,
+        "bbox": diff_stats.bbox,
+        "color_changes": diff_stats.color_changes,
+        "examples": diff_stats.examples,
+        "meaningful": diff_stats.num_changes > 0,
+    }
+
+
 class ArcAgi3Env(BaseTextEnv):
     """SkyRL text environment wrapper around the ARC-AGI-3 Toolkit."""
 
@@ -279,6 +297,8 @@ class ArcAgi3Env(BaseTextEnv):
     def step(self, action: str) -> BaseTextEnvStepOutput:
         self.turns += 1
 
+        parsed: ParsedAction | None = None
+        reward_components: dict[str, float] = {}
         try:
             parsed = parse_model_action(action)
             step_output = self._apply_action(parsed)
@@ -293,13 +313,14 @@ class ArcAgi3Env(BaseTextEnv):
         if step_output is not None:
             current_frame = _to_plain(getattr(step_output, "frame", None))
             diff_stats = _diff_stats(self.last_frame, current_frame)
-            reward = self._compute_reward(step_output, diff_stats)
+            reward, reward_components = self._compute_reward(step_output, diff_stats)
             self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
             self.success = self._is_success(step_output)
             self.game_over = self._is_game_over(step_output)
         else:
             diff_stats = None
             reward = self.invalid_action_reward
+            reward_components = {"invalid_action": self.invalid_action_reward}
             self.done = self.turns >= self.max_turns
 
         observation_text = self._build_observation_text(
@@ -326,6 +347,11 @@ class ArcAgi3Env(BaseTextEnv):
                 "success": self.success,
                 "game_over": self.game_over,
                 "error": error,
+                "model_output": action,
+                "parsed_action": _parsed_action_metadata(parsed),
+                "reward_components": reward_components,
+                "diff_stats": _diff_metadata(diff_stats),
+                "state": self._state_metadata(step_output),
             },
         )
 
@@ -338,23 +364,28 @@ class ArcAgi3Env(BaseTextEnv):
             return self.env.step(action_enum, data={"x": int(parsed.x), "y": int(parsed.y)})
         return self.env.step(action_enum)
 
-    def _compute_reward(self, observation: Any, diff_stats: FrameDiffStats | None) -> float:
+    def _compute_reward(self, observation: Any, diff_stats: FrameDiffStats | None) -> tuple[float, dict[str, float]]:
         levels_completed = self._read_levels_completed(observation)
         level_delta = max(0, levels_completed - self.last_levels_completed)
         done = bool(getattr(observation, "done", False))
 
+        components = {
+            "level_delta": level_delta * self.level_reward,
+            "done": self.done_reward if done else 0.0,
+            "meaningful_diff": self.meaningful_diff_reward if self._has_meaningful_diff(diff_stats) else 0.0,
+        }
         reward = 0.0
         if level_delta > 0:
-            reward += level_delta * self.level_reward
+            reward += components["level_delta"]
         if done:
-            reward += self.done_reward
+            reward += components["done"]
         if self._has_meaningful_diff(diff_stats):
-            reward += self.meaningful_diff_reward
+            reward += components["meaningful_diff"]
 
         self.last_score = self._read_score(observation)
         self.last_levels_completed = levels_completed
         self.last_diff_stats = diff_stats
-        return reward
+        return reward, components
 
     def _has_meaningful_diff(self, diff_stats: FrameDiffStats | None) -> bool:
         if diff_stats is None:
@@ -424,6 +455,14 @@ class ArcAgi3Env(BaseTextEnv):
             return float(value or 0.0)
         except (TypeError, ValueError):
             return 0.0
+
+    def _state_metadata(self, source: Any) -> dict[str, Any]:
+        return {
+            "state": _enum_name(getattr(source, "state", None)),
+            "score": self._read_score(source),
+            "levels_completed": self._read_levels_completed(source),
+            "done": bool(getattr(source, "done", False)) if source is not None else self.done,
+        }
 
     def _is_success(self, observation: Any) -> bool:
         if (

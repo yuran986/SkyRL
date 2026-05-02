@@ -58,3 +58,17 @@ The model should emit exactly one action per turn:
 ```
 
 `ACTION6` requires `x` and `y` coordinates in `[0, 63]`.
+
+## Debug One Rollout
+
+Run a local rollout without starting SkyRL training:
+
+```bash
+PYTHONPATH=$PWD/skyrl-gym:$PWD \
+python examples/train_integrations/arc_agi3/debug_rollout.py \
+  --task_id ft09 \
+  --action '<action>ACTION1</action>' \
+  --action '<action>{"action":"ACTION6","x":32,"y":32}</action>'
+```
+
+The script prints JSON records for `init` and each `step`, including parsed action metadata, reward components, diff stats, observations, and metrics.
