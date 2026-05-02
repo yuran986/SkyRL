@@ -123,3 +123,5 @@ tx/tinker/alembic/__pycache__/
 *.db-journal
 *.db-wal
 *.db-shm
+
+img

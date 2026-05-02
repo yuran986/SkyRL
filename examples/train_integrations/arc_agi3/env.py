@@ -1,0 +1,413 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
+
+
+ACTION_PATTERN = re.compile(r"\b(RESET|ACTION[1-7])\b", re.IGNORECASE)
+COORD_PATTERN = re.compile(r"\b([xy])\s*[:=]\s*(-?\d+)\b", re.IGNORECASE)
+FRAME_COLOR_NAMES = {
+    0: "white",
+    1: "off-white",
+    2: "light gray",
+    3: "gray",
+    4: "off-black",
+    5: "black",
+    6: "magenta",
+    7: "light magenta",
+    8: "red",
+    9: "blue",
+    10: "light blue",
+    11: "yellow",
+    12: "orange",
+    13: "maroon",
+    14: "green",
+    15: "purple",
+}
+
+
+@dataclass
+class ParsedAction:
+    name: str
+    x: int | None = None
+    y: int | None = None
+
+
+def _to_plain(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _to_plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_plain(v) for v in value]
+    if hasattr(value, "value"):
+        try:
+            return _to_plain(value.value)
+        except Exception:
+            pass
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        try:
+            return _to_plain(tolist())
+        except Exception:
+            pass
+    return str(value)
+
+
+def _enum_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(getattr(value, "name", None) or getattr(value, "value", None) or value)
+
+
+def _extract_action_payload(output: str) -> str:
+    if "<action>" not in output:
+        return output.strip()
+    payload = output.split("<action>")[-1]
+    if "</action>" in payload:
+        payload = payload.split("</action>", 1)[0]
+    return payload.strip().strip("`").strip()
+
+
+def parse_model_action(output: str) -> ParsedAction:
+    """Parse a model response into one ARC action.
+
+    Supported forms:
+    - <action>ACTION1</action>
+    - <action>{"action":"ACTION6","x":32,"y":32}</action>
+    - <action>ACTION6 x=32 y=32</action>
+    """
+    payload = _extract_action_payload(output)
+    if not payload:
+        raise ValueError("empty action payload")
+
+    parsed_json: Any | None = None
+    if payload.startswith("{"):
+        try:
+            parsed_json = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON action: {exc}") from exc
+
+    if isinstance(parsed_json, dict):
+        action_name = parsed_json.get("action") or parsed_json.get("name") or parsed_json.get("id")
+        if not action_name:
+            raise ValueError("JSON action must contain an action/name/id field")
+        name = str(action_name).upper()
+        x = parsed_json.get("x")
+        y = parsed_json.get("y")
+    else:
+        match = ACTION_PATTERN.search(payload)
+        if not match:
+            raise ValueError(f"could not find action name in payload: {payload!r}")
+        name = match.group(1).upper()
+        coords = {m.group(1).lower(): int(m.group(2)) for m in COORD_PATTERN.finditer(payload)}
+        x = coords.get("x")
+        y = coords.get("y")
+
+    if name == "ACTION6":
+        if x is None or y is None:
+            raise ValueError("ACTION6 requires integer x and y coordinates")
+        x = int(x)
+        y = int(y)
+        if not (0 <= x <= 63 and 0 <= y <= 63):
+            raise ValueError(f"ACTION6 coordinates must be in [0, 63], got x={x}, y={y}")
+        return ParsedAction(name=name, x=x, y=y)
+
+    return ParsedAction(name=name)
+
+
+def _grid_from_frame(frame_like: Any) -> list[list[Any]] | None:
+    frame = _to_plain(frame_like)
+    if isinstance(frame, dict) and "frame" in frame:
+        frame = frame["frame"]
+    if isinstance(frame, list) and frame and isinstance(frame[0], list):
+        if frame[0] and isinstance(frame[0][0], list):
+            frame = frame[0]
+        return frame
+    return None
+
+
+def _diff_summary(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> str:
+    prev_grid = _grid_from_frame(prev_frame)
+    cur_grid = _grid_from_frame(cur_frame)
+    if prev_grid is None or cur_grid is None:
+        return "frame_diff: unavailable"
+
+    changes: list[tuple[int, int, Any, Any]] = []
+    h = max(len(prev_grid), len(cur_grid))
+    w = max(
+        max((len(row) for row in prev_grid), default=0),
+        max((len(row) for row in cur_grid), default=0),
+    )
+    for y in range(h):
+        prev_row = prev_grid[y] if y < len(prev_grid) else []
+        cur_row = cur_grid[y] if y < len(cur_grid) else []
+        for x in range(w):
+            before = prev_row[x] if x < len(prev_row) else None
+            after = cur_row[x] if x < len(cur_row) else None
+            if before != after:
+                changes.append((x, y, before, after))
+
+    if not changes:
+        return "frame_diff: num_changes=0"
+
+    xs = [x for x, _, _, _ in changes]
+    ys = [y for _, y, _, _ in changes]
+    color_changes = Counter((before, after) for _, _, before, after in changes)
+    color_text = ", ".join(
+        f"{_color_name(before)}->{_color_name(after)}:{count}"
+        for (before, after), count in color_changes.most_common(8)
+    )
+    examples = [
+        {"x": x, "y": y, "before": before, "after": after}
+        for x, y, before, after in changes[:max_examples]
+    ]
+    return (
+        f"frame_diff: num_changes={len(changes)} "
+        f"bbox=({min(xs)},{min(ys)})-({max(xs)},{max(ys)}) "
+        f"colors={color_text} examples={examples}"
+    )
+
+
+def _color_name(value: Any) -> str:
+    return FRAME_COLOR_NAMES.get(value, str(value))
+
+
+class ArcAgi3Env(BaseTextEnv):
+    """SkyRL text environment wrapper around the ARC-AGI-3 Toolkit."""
+
+    def __init__(self, env_config: Any, extras: dict[str, Any] | None = None):
+        super().__init__()
+        self.env_config = env_config or {}
+        self.extras = extras or {}
+        self.max_turns = int(self.extras.get("max_turns", self.extras.get("max_steps", 64)))
+        self.task_id = str(self.extras.get("task_id", os.getenv("ARC_AGI3_TASK_ID", "ft09")))
+        self.seed = self.extras.get("seed")
+        self.render_mode = str(self.extras.get("render_mode", os.getenv("ARC_AGI3_RENDER_MODE", "terminal-fast")))
+        self.operation_mode = str(
+            self.extras.get("operation_mode", os.getenv("OPERATION_MODE", "OFFLINE"))
+        ).upper()
+        self.environments_dir = self.extras.get("environments_dir", os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
+        self.levels_to_complete = int(self.extras.get("levels_to_complete", 6))
+        self.invalid_action_reward = float(self.extras.get("invalid_action_reward", -0.05))
+        self.level_reward = float(self.extras.get("level_reward", 0.1))
+        self.success_reward = float(self.extras.get("success_reward", 1.0))
+        self.game_over_reward = float(self.extras.get("game_over_reward", 0.0))
+        self.score_reward_scale = float(self.extras.get("score_reward_scale", 0.0))
+
+        self.arc = None
+        self.env = None
+        self.GameAction = None
+        self.OperationMode = None
+        self.turns = 0
+        self.invalid_actions = 0
+        self.last_frame = None
+        self.last_score = 0.0
+        self.last_levels_completed = 0
+        self.done = False
+        self.success = False
+        self.game_over = False
+
+        self._init_arc_env()
+
+    def _init_arc_env(self) -> None:
+        try:
+            import arc_agi
+            from arc_agi import OperationMode
+            from arcengine import GameAction
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "arc_agi/arcengine is not installed. Install it with `uv pip install arc-agi` "
+                "or run via `uv run --with arc-agi ...`."
+            ) from exc
+
+        self.OperationMode = OperationMode
+        self.GameAction = GameAction
+        mode = getattr(OperationMode, self.operation_mode, OperationMode.OFFLINE)
+        arcade_kwargs: dict[str, Any] = {"operation_mode": mode}
+        if self.environments_dir:
+            arcade_kwargs["environments_dir"] = str(Path(self.environments_dir).expanduser())
+        self.arc = arc_agi.Arcade(**arcade_kwargs)
+
+        make_kwargs: dict[str, Any] = {"render_mode": self.render_mode}
+        if self.seed not in (None, ""):
+            make_kwargs["seed"] = int(self.seed)
+        self.env = self.arc.make(self.task_id, **make_kwargs)
+
+        obs_space = getattr(self.env, "observation_space", None)
+        self.last_frame = _to_plain(getattr(obs_space, "frame", None))
+        self.last_score = self._read_score(obs_space)
+        self.last_levels_completed = self._read_levels_completed(obs_space)
+
+    def init(self, prompt: ConversationType) -> tuple[ConversationType, dict[str, Any]]:
+        prompt = list(prompt)
+        prompt.append({"role": "user", "content": self._build_observation_text(initial=True)})
+        return prompt, {"task_id": self.task_id}
+
+    def step(self, action: str) -> BaseTextEnvStepOutput:
+        self.turns += 1
+
+        try:
+            parsed = parse_model_action(action)
+            step_output = self._apply_action(parsed)
+            valid_action = True
+            error = None
+        except Exception as exc:
+            step_output = None
+            valid_action = False
+            error = str(exc)
+            self.invalid_actions += 1
+
+        if step_output is not None:
+            reward = self._compute_reward(step_output)
+            self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
+            self.success = self._is_success(step_output)
+            self.game_over = self._is_game_over(step_output)
+            if self.success:
+                reward += self.success_reward
+            elif self.game_over and self.done:
+                reward += self.game_over_reward
+        else:
+            reward = self.invalid_action_reward
+            self.done = self.turns >= self.max_turns
+
+        observation_text = self._build_observation_text(
+            action=action,
+            valid_action=valid_action,
+            error=error,
+            step_output=step_output,
+        )
+        if self.done:
+            observations: ConversationType = []
+        else:
+            observations = [{"role": "user", "content": observation_text}]
+
+        return BaseTextEnvStepOutput(
+            observations=observations,
+            reward=float(reward),
+            done=self.done,
+            metadata={
+                "task_id": self.task_id,
+                "turns": self.turns,
+                "valid_action": valid_action,
+                "invalid_actions": self.invalid_actions,
+                "success": self.success,
+                "game_over": self.game_over,
+                "error": error,
+            },
+        )
+
+    def _apply_action(self, parsed: ParsedAction) -> Any:
+        action_members = getattr(self.GameAction, "__members__", {})
+        if parsed.name not in action_members:
+            raise ValueError(f"unknown action {parsed.name}; available={sorted(action_members.keys())}")
+        action_enum = action_members[parsed.name]
+        if parsed.name == "ACTION6":
+            return self.env.step(action_enum, data={"x": int(parsed.x), "y": int(parsed.y)})
+        return self.env.step(action_enum)
+
+    def _compute_reward(self, observation: Any) -> float:
+        score = self._read_score(observation)
+        levels_completed = self._read_levels_completed(observation)
+        score_delta = score - self.last_score
+        level_delta = max(0, levels_completed - self.last_levels_completed)
+        self.last_score = score
+        self.last_levels_completed = levels_completed
+        return level_delta * self.level_reward + score_delta * self.score_reward_scale
+
+    def _build_observation_text(
+        self,
+        initial: bool = False,
+        action: str | None = None,
+        valid_action: bool | None = None,
+        error: str | None = None,
+        step_output: Any | None = None,
+    ) -> str:
+        source = step_output if step_output is not None else getattr(self.env, "observation_space", None)
+        state = _enum_name(getattr(source, "state", None))
+        levels_completed = self._read_levels_completed(source)
+        score = self._read_score(source)
+        current_frame = _to_plain(getattr(source, "frame", None))
+        diff = "frame_diff: initial" if initial else _diff_summary(self.last_frame, current_frame)
+        if current_frame is not None:
+            self.last_frame = current_frame
+
+        action_space = self._action_space_text()
+        lines = [
+            f"task_id={self.task_id}",
+            f"turn={self.turns}/{self.max_turns}",
+            f"state={state}",
+            f"score={score}",
+            f"levels_completed={levels_completed}/{self.levels_to_complete}",
+            f"available_actions={action_space}",
+            diff,
+        ]
+        if action is not None:
+            lines.append(f"last_model_output={action.strip()[:500]}")
+            lines.append(f"last_action_valid={valid_action}")
+        if error:
+            lines.append(f"action_error={error}")
+        lines.append(
+            'Return exactly one next action in <action>...</action>. '
+            'Use {"action":"ACTION6","x":32,"y":32} for coordinate clicks.'
+        )
+        return "\n".join(lines)
+
+    def _action_space_text(self) -> str:
+        action_members = getattr(self.GameAction, "__members__", {})
+        canonical_actions = sorted(action_members.keys())
+        raw_action_space = repr(getattr(self.env, "action_space", None))
+        return f"{canonical_actions}; raw={raw_action_space}"
+
+    def _read_levels_completed(self, source: Any) -> int:
+        value = getattr(source, "levels_completed", None)
+        if value is None:
+            value = getattr(source, "completed", None)
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _read_score(self, source: Any) -> float:
+        value = getattr(source, "score", None)
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _is_success(self, observation: Any) -> bool:
+        if (
+            bool(getattr(observation, "done", False))
+            and self._read_levels_completed(observation) >= self.levels_to_complete
+        ):
+            return True
+        state_name = (_enum_name(getattr(observation, "state", None)) or "").upper()
+        return state_name in {"WIN", "WON", "SUCCESS", "COMPLETE", "COMPLETED"}
+
+    def _is_game_over(self, observation: Any) -> bool:
+        state_name = (_enum_name(getattr(observation, "state", None)) or "").upper()
+        return state_name in {"GAME_OVER", "LOSE", "LOST", "FAILED"}
+
+    def close(self):
+        close = getattr(self.env, "close", None)
+        if callable(close):
+            close()
+
+    def get_metrics(self) -> dict[str, Any]:
+        obs_space = getattr(self.env, "observation_space", None)
+        return {
+            "task_id": self.task_id,
+            "success": float(self.success),
+            "game_over": float(self.game_over),
+            "final_score": self._read_score(obs_space),
+            "levels_completed": self._read_levels_completed(obs_space),
+            "steps": self.turns,
+            "invalid_actions": self.invalid_actions,
+        }
