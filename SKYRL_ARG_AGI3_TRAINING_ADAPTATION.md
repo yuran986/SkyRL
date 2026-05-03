@@ -206,13 +206,21 @@ generator.step_wise_trajectories=false
 - `win`
 - `task_id`
 
-建议额外写一个 rollout JSONL：
+当前已经实现结构化 rollout JSONL，训练时打开：
 
-```json
-{"step": 3, "action": "ACTION6", "x": 32, "y": 32, "reward": 0.1, "state": "NOT_FINISHED", "levels_completed": 2}
+```bash
+trainer.dump_rollout_logs=true
 ```
 
-这和 RLM 版本里的 `FrameStreamWriter` 作用类似，方便分析失败轨迹。
+输出路径：
+
+```text
+$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl
+```
+
+每行是一条 trajectory，包含每轮 action、observation、reward、reward components、
+diff stats 和 environment state。这和 RLM 版本里的 `FrameStreamWriter` 作用类似，
+方便分析失败轨迹。
 
 ### 5.6 数据准备脚本
 
@@ -280,6 +288,8 @@ generator.sampling_params.top_p=0.95
 generator.sampling_params.max_generate_length=128
 trainer.train_batch_size=8
 trainer.policy_mini_batch_size=8
+trainer.ckpt_path=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B
+trainer.dump_rollout_logs=true
 ```
 
 如果组内 reward 方差长期为 0，优先改 reward shaping 和增大 `n_samples_per_prompt`，再考虑动态采样：
@@ -306,7 +316,7 @@ trainer.algorithm.dynamic_sampling.type="filter"
 2. 写 `prepare_dataset.py`，生成 16 到 64 条 parquet。
 3. 写 `main_arc_agi3.py` 注册环境。
 4. 写 `run_arc_agi3_grpo.sh`，小模型、小 batch 跑 1 到 2 个训练 step。
-5. 开 `trainer.dump_data_batch=true`，检查 reward、loss mask、uids 分组。
+5. 开 `trainer.dump_data_batch=true` 和 `trainer.dump_rollout_logs=true`，检查 reward、loss mask、uids 分组、动作分布和 diff/reward 来源。
 
 ### M2：真实任务训练
 

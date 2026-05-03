@@ -191,6 +191,16 @@ python -c "from examples.train_integrations.arc_agi3.env import parse_model_acti
 
 ## 8. 启动一次最小 GRPO 训练
 
+日常开训入口看：
+
+```text
+examples/train_integrations/arc_agi3/README.md
+examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+```
+
+本文件保留完整环境配置、参数解释和排错说明。真正开始训练时，优先从 integration
+README 的 `Train` 小节复制命令。
+
 先用小 batch、小模型、小步数跑通链路：
 
 ```bash
@@ -198,6 +208,7 @@ set -a
 source .env
 set +a
 DATA_DIR=$HOME/data/arc_agi3 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B \
 NUM_GPUS=1 \
 LOGGER=console \
 MAX_TURNS=8 \
@@ -303,19 +314,42 @@ trainer.algorithm.dynamic_sampling.type="filter"
 
 ## 10. 日志与调试
 
-建议设置：
+训练脚本默认开启：
 
 ```bash
-export ARC_AGI3_ROLLOUT_LOG_DIR=/tmp/skyrl-arc-agi3-rollouts
+trainer.dump_data_batch=true
+trainer.dump_rollout_logs=true
 ```
 
-wrapper 每条轨迹写 JSONL，记录：
+主要输出位置：
 
 ```text
-task_id, seed, step, action, x, y, valid, reward, state, score, levels_completed, done
+$HOME/skyrl_logs/arc_agi3/infra-*.log
+$HOME/skyrl_logs/arc_agi3/router-*.log
+$EXPORT_PATH/dumped_data/global_step_*_training_input.pkl
+$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl
+$EXPORT_PATH/dumped_evals/global_step_*_evals/*.jsonl
 ```
 
-完整 frame 可以只在 debug 开关打开时写入，避免日志过大。
+`dumped_rollouts` 每行是一条 trajectory，包含每轮：
+
+```text
+turn, model_output, reward, done, observations, parsed_action,
+reward_components, diff_stats, state
+```
+
+常用检查：
+
+```bash
+jq -r '.steps[].model_output' $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl \
+  | sort | uniq -c | sort -nr
+
+jq '{sample_index, uid, total_reward, num_steps}' \
+  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+
+jq '.steps[] | {turn, reward, parsed_action: .metadata.parsed_action, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
+  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+```
 
 ## 11. 参考资料
 

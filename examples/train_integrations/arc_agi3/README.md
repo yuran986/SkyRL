@@ -2,6 +2,18 @@
 
 This integration wraps the ARC-AGI-3 Toolkit as a `skyrl-gym` text environment so SkyRL can train with GRPO.
 
+## Start Here
+
+Use this file for the day-to-day workflow. The full environment walkthrough is in
+`/home/users/yz1051/SkyRL/ARC_AGI3_ENV_SETUP.md`; the actual launcher is
+`examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh`.
+
+The normal order is:
+
+1. Prepare `$HOME/data/arc_agi3/{train,validation}.parquet`.
+2. Run `run_arc_agi3_grpo.sh` with `CKPT_PATH` on `/usr/project/xtmp`.
+3. Inspect metrics, console examples, and structured rollouts under `$EXPORT_PATH`.
+
 ## Setup
 
 From the repository root:
@@ -44,6 +56,7 @@ For a small smoke run:
 
 ```bash
 DATA_DIR=$HOME/data/arc_agi3 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B \
 NUM_GPUS=1 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
@@ -64,6 +77,16 @@ first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and `N_SAMPLES_PER_PR
 Structured training rollouts are written to `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
 Each JSONL row contains one trajectory with per-turn action, observation, reward, reward components,
 diff stats, and environment state.
+
+Useful rollout checks:
+
+```bash
+jq -r '.steps[].model_output' $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl \
+  | sort | uniq -c | sort -nr
+
+jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
+  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+```
 
 The model should emit exactly one action per turn:
 
