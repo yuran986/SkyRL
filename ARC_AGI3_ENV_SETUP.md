@@ -353,6 +353,10 @@ reward_components, diff_stats, state
 ```bash
 EXPORT_PATH=$HOME/exports/arc_agi3/arc_agi3_latest_YYYYmmdd_HHMMSS
 
+python examples/train_integrations/arc_agi3/visualize_rollouts.py \
+  "$EXPORT_PATH" \
+  -o "$EXPORT_PATH/rollout_viewer.html"
+
 jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
   | sort | uniq -c | sort -nr
 
@@ -362,6 +366,10 @@ jq '{sample_index, uid, total_reward, num_steps}' \
 jq '.steps[] | {turn, reward, parsed_action: .metadata.parsed_action, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
+
+`rollout_viewer.html` 是静态页面，不需要启动服务。它支持按 reward、invalid action、
+positive step 和关键字筛选 trajectory，并展示每轮 `<think>`、`<action>`、
+observation、reward components、diff stats 和原始 step JSON。
 
 ## 11. 参考资料
 

@@ -87,12 +87,20 @@ Useful rollout checks:
 ```bash
 EXPORT_PATH=$HOME/exports/arc_agi3/arc_agi3_latest_YYYYmmdd_HHMMSS
 
+python examples/train_integrations/arc_agi3/visualize_rollouts.py \
+  "$EXPORT_PATH" \
+  -o "$EXPORT_PATH/rollout_viewer.html"
+
 jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
   | sort | uniq -c | sort -nr
 
 jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
+
+Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows summary
+metrics, trajectory filters, per-turn `<think>`, `<action>`, reward components, diff stats,
+observations, and raw step JSON.
 
 The model should emit brief reasoning followed by exactly one executable action per turn:
 
