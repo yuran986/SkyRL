@@ -98,9 +98,14 @@ jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, di
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
 
-Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows summary
-metrics, trajectory filters, per-turn `<think>`, `<action>`, reward components, diff stats,
-observations, and raw step JSON.
+Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows rollout-derived
+training curves by `global_step`, summary metrics, trajectory filters, per-turn `<think>`,
+`<action>`, reward components, diff stats, observations, and raw step JSON.
+
+SkyRL also supports native metric trackers through `LOGGER`: `wandb`, `mlflow`, `swanlab`,
+`tensorboard`, and `console`. Use those for normal training curves such as reward, KL, entropy,
+loss, response length, timing, and eval pass rate. Use this static viewer to debug behavior and
+reward assignment inside individual rollouts.
 
 The model should emit brief reasoning followed by exactly one executable action per turn:
 

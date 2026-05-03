@@ -367,9 +367,17 @@ jq '.steps[] | {turn, reward, parsed_action: .metadata.parsed_action, reward_com
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
 
-`rollout_viewer.html` 是静态页面，不需要启动服务。它支持按 reward、invalid action、
-positive step 和关键字筛选 trajectory，并展示每轮 `<think>`、`<action>`、
+`rollout_viewer.html` 是静态页面，不需要启动服务。它会按 `global_step` 展示从
+rollout 聚合出来的曲线，例如 avg reward、positive trajectory rate、invalid step
+rate、avg turns、avg levels completed 和 success rate。它也支持按 reward、invalid
+action、positive step 和关键字筛选 trajectory，并展示每轮 `<think>`、`<action>`、
 observation、reward components、diff stats 和原始 step JSON。
+
+SkyRL 原生 tracker 通过 `trainer.logger` / 脚本里的 `LOGGER` 控制，支持
+`wandb`、`mlflow`、`swanlab`、`tensorboard` 和 `console`。长期训练建议用这些 tracker
+看 reward、KL、entropy、loss、response length、timing 和 eval pass rate；静态
+rollout viewer 主要用于排查模型具体行为、动作合法性、reward 是否被刷和 observation
+是否足够。
 
 ## 11. 参考资料
 

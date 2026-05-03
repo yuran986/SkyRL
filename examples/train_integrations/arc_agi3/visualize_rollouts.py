@@ -98,6 +98,7 @@ def _build_report_data(rows: list[dict[str, Any]], max_trajectories: int | None)
         rows = rows[:max_trajectories]
 
     summaries = [_trajectory_summary(row, index) for index, row in enumerate(rows)]
+    step_summaries = _step_summaries(summaries)
     rewards = [summary["total_reward"] for summary in summaries]
     all_steps = [step for row in rows for step in (row.get("steps") or [])]
     invalid_steps = [
@@ -126,9 +127,45 @@ def _build_report_data(rows: list[dict[str, Any]], max_trajectories: int | None)
             "positive_steps": len(positive_steps),
             "top_actions": sorted(action_counts.items(), key=lambda item: item[1], reverse=True)[:20],
         },
+        "step_summaries": step_summaries,
         "trajectories": rows,
         "trajectory_summaries": summaries,
     }
+
+
+def _step_summaries(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for summary in summaries:
+        step = summary.get("global_step")
+        if step is None:
+            continue
+        grouped.setdefault(int(step), []).append(summary)
+
+    results = []
+    for step in sorted(grouped):
+        group = grouped[step]
+        total_steps = sum(int(item.get("num_steps") or 0) for item in group)
+        invalid_steps = sum(int(item.get("invalid_steps") or 0) for item in group)
+        positive_steps = sum(int(item.get("positive_steps") or 0) for item in group)
+        rewards = [float(item.get("total_reward") or 0.0) for item in group]
+        levels = [float(item.get("levels_completed") or 0.0) for item in group]
+        successes = [float(item.get("success") or 0.0) for item in group]
+        results.append(
+            {
+                "global_step": step,
+                "num_trajectories": len(group),
+                "num_steps": total_steps,
+                "avg_reward": mean(rewards) if rewards else 0.0,
+                "positive_trajectory_rate": sum(1 for reward in rewards if reward > 0) / len(group),
+                "negative_trajectory_rate": sum(1 for reward in rewards if reward < 0) / len(group),
+                "invalid_step_rate": invalid_steps / total_steps if total_steps else 0.0,
+                "positive_step_rate": positive_steps / total_steps if total_steps else 0.0,
+                "avg_num_steps": total_steps / len(group),
+                "avg_levels_completed": mean(levels) if levels else 0.0,
+                "success_rate": mean(successes) if successes else 0.0,
+            }
+        )
+    return results
 
 
 def _default_output_path(input_paths: list[Path]) -> Path:
@@ -236,6 +273,20 @@ def _html_template(title: str, data_json: str) -> str:
     .step:first-child {{ border-top: 0; }}
     .step-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: center; }}
     .step-head h3 {{ border: 0; background: transparent; padding: 0; }}
+    .charts {{ display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 12px; }}
+    .chart {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }}
+    .chart-title {{ display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-weight: 650; }}
+    .chart-title span {{ color: var(--muted); font-weight: 400; font-size: 12px; }}
+    .chart svg {{ display: block; width: 100%; height: 160px; }}
+    .chart text {{ fill: var(--muted); font-size: 11px; }}
+    .chart .grid {{ stroke: #e4e7ec; stroke-width: 1; }}
+    .chart .line {{ fill: none; stroke: var(--accent); stroke-width: 2.5; }}
+    .chart .dot {{ fill: var(--accent); }}
     pre {{
       white-space: pre-wrap;
       word-break: break-word;
@@ -257,6 +308,7 @@ def _html_template(title: str, data_json: str) -> str:
       aside {{ max-height: 300px; border-right: 0; border-bottom: 1px solid var(--line); }}
       .content {{ max-height: none; }}
       .two-col {{ grid-template-columns: 1fr; }}
+      .charts {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -286,6 +338,7 @@ def _html_template(title: str, data_json: str) -> str:
     const data = JSON.parse(document.getElementById('rollout-data').textContent);
     const summaries = data.trajectory_summaries;
     const trajectories = data.trajectories;
+    const stepSummaries = data.step_summaries || [];
     let activeIndex = 0;
 
     const fmt = (value, digits = 4) => {{
@@ -387,6 +440,9 @@ def _html_template(title: str, data_json: str) -> str:
       }}
       detail.replaceChildren();
 
+      const curves = renderCurveSection();
+      if (curves) detail.append(curves);
+
       const overview = section('Trajectory Overview');
       const overviewBody = overview.querySelector('.section-body');
       overviewBody.append(kvPre({{
@@ -448,6 +504,65 @@ def _html_template(title: str, data_json: str) -> str:
         body.append(raw);
         detail.append(stepSection);
       }});
+    }}
+
+    function renderCurveSection() {{
+      if (!stepSummaries.length) return null;
+      const sec = section('Training Curves From Rollouts');
+      const body = sec.querySelector('.section-body');
+      const charts = document.createElement('div');
+      charts.className = 'charts';
+      charts.append(
+        lineChart('Avg Reward', 'avg_reward', 'trajectory reward'),
+        lineChart('Positive Trajectory Rate', 'positive_trajectory_rate', 'fraction'),
+        lineChart('Invalid Step Rate', 'invalid_step_rate', 'fraction'),
+        lineChart('Avg Turns', 'avg_num_steps', 'turns'),
+        lineChart('Avg Levels Completed', 'avg_levels_completed', 'levels'),
+        lineChart('Success Rate', 'success_rate', 'fraction'),
+      );
+      body.append(charts);
+      return sec;
+    }}
+
+    function lineChart(title, key, unit) {{
+      const width = 360;
+      const height = 160;
+      const pad = 28;
+      const values = stepSummaries.map(d => Number(d[key] || 0));
+      const steps = stepSummaries.map(d => Number(d.global_step || 0));
+      let minY = Math.min(...values);
+      let maxY = Math.max(...values);
+      if (minY === maxY) {{
+        minY -= 0.05;
+        maxY += 0.05;
+      }}
+      const minX = Math.min(...steps);
+      const maxX = Math.max(...steps);
+      const sx = x => maxX === minX ? width / 2 : pad + ((x - minX) / (maxX - minX)) * (width - pad * 2);
+      const sy = y => pad + (1 - ((y - minY) / (maxY - minY))) * (height - pad * 2);
+      const points = stepSummaries.map(d => [sx(Number(d.global_step || 0)), sy(Number(d[key] || 0))]);
+      const path = points.map((point, i) => `${{i ? 'L' : 'M'}}${{point[0].toFixed(1)}},${{point[1].toFixed(1)}}`).join(' ');
+      const latest = values.length ? values[values.length - 1] : 0;
+
+      const div = document.createElement('div');
+      div.className = 'chart';
+      const titleEl = document.createElement('div');
+      titleEl.className = 'chart-title';
+      titleEl.innerHTML = `${{htmlEscape(title)}} <span>latest ${{fmt(latest)}} ${{htmlEscape(unit)}}</span>`;
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', `0 0 ${{width}} ${{height}}`);
+      svg.innerHTML = `
+        <line class="grid" x1="${{pad}}" y1="${{pad}}" x2="${{pad}}" y2="${{height - pad}}"></line>
+        <line class="grid" x1="${{pad}}" y1="${{height - pad}}" x2="${{width - pad}}" y2="${{height - pad}}"></line>
+        <text x="${{pad}}" y="16">${{fmt(maxY)}}</text>
+        <text x="${{pad}}" y="${{height - 6}}">${{fmt(minY)}}</text>
+        <text x="${{pad}}" y="${{height - 10}}" text-anchor="middle">s${{minX}}</text>
+        <text x="${{width - pad}}" y="${{height - 10}}" text-anchor="middle">s${{maxX}}</text>
+        <path class="line" d="${{path}}"></path>
+        ${{points.map(point => `<circle class="dot" cx="${{point[0].toFixed(1)}}" cy="${{point[1].toFixed(1)}}" r="3"></circle>`).join('')}}
+      `;
+      div.append(titleEl, svg);
+      return div;
     }}
 
     function section(title) {{
