@@ -46,6 +46,7 @@ For a small smoke run:
 DATA_DIR=$HOME/data/arc_agi3 \
 NUM_GPUS=1 \
 LOGGER=console \
+MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=8 \
 MAX_INPUT_LENGTH=8192 \
 N_SAMPLES_PER_PROMPT=5 \
@@ -53,8 +54,13 @@ TRAIN_BATCH_SIZE=8 \
 POLICY_MINI_BATCH_SIZE=8 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=1 \
-  trainer.eval_before_train=false
+  trainer.eval_before_train=false \
+  trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
+
+Infrastructure logs are written under `trainer.log_path`; with the command above, check
+`$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,
+first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and `N_SAMPLES_PER_PROMPT`.
 
 The model should emit exactly one action per turn:
 
