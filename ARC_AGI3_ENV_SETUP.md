@@ -331,6 +331,16 @@ $EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl
 $EXPORT_PATH/dumped_evals/global_step_*_evals/*.jsonl
 ```
 
+`run_arc_agi3_grpo.sh` 默认会给每次训练生成唯一的 `EXPORT_PATH`：
+
+```text
+$HOME/exports/arc_agi3/${RUN_NAME}_YYYYmmdd_HHMMSS
+```
+
+脚本启动时会打印 `ARC-AGI-3 export path: ...`。如果你显式传入
+`EXPORT_PATH=/some/path`，脚本会使用你给的固定路径；这种情况下同名
+`global_step_*` 文件仍可能被覆盖。
+
 `dumped_rollouts` 每行是一条 trajectory，包含每轮：
 
 ```text
@@ -341,14 +351,16 @@ reward_components, diff_stats, state
 常用检查：
 
 ```bash
-jq -r '.steps[].model_output' $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl \
+EXPORT_PATH=$HOME/exports/arc_agi3/arc_agi3_latest_YYYYmmdd_HHMMSS
+
+jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
   | sort | uniq -c | sort -nr
 
 jq '{sample_index, uid, total_reward, num_steps}' \
-  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+  "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 
 jq '.steps[] | {turn, reward, parsed_action: .metadata.parsed_action, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
-  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+  "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
 
 ## 11. 参考资料

@@ -75,18 +75,23 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 Infrastructure logs are written under `trainer.log_path`; with the command above, check
 `$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,
 first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and `N_SAMPLES_PER_PROMPT`.
-Structured training rollouts are written to `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
+By default, `run_arc_agi3_grpo.sh` creates a unique export directory for each run:
+`$HOME/exports/arc_agi3/${RUN_NAME}_YYYYmmdd_HHMMSS`. The script prints the resolved
+`ARC-AGI-3 export path` at startup. Structured training rollouts are written to
+`$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
 Each JSONL row contains one trajectory with per-turn action, observation, reward, reward components,
 diff stats, and environment state.
 
 Useful rollout checks:
 
 ```bash
-jq -r '.steps[].model_output' $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl \
+EXPORT_PATH=$HOME/exports/arc_agi3/arc_agi3_latest_YYYYmmdd_HHMMSS
+
+jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
   | sort | uniq -c | sort -nr
 
 jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
-  $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
+  "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
 ```
 
 The model should emit brief reasoning followed by exactly one executable action per turn:

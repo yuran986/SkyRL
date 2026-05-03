@@ -27,9 +27,13 @@ fi
 : "${EVAL_INTERVAL:=50}"
 : "${EVAL_BEFORE_TRAIN:=false}"
 : "${RUN_NAME:=arc_agi3_latest}"
-: "${EXPORT_PATH:="$HOME/exports/arc_agi3"}"
+: "${RUN_ID:="${RUN_NAME}_$(date +%Y%m%d_%H%M%S)"}"
+: "${EXPORT_ROOT:="$HOME/exports/arc_agi3"}"
+: "${EXPORT_PATH:="$EXPORT_ROOT/$RUN_ID"}"
 : "${MAX_MODEL_LEN:=}"
 : "${MAX_ENV_WORKERS:=16}"
+
+echo "ARC-AGI-3 export path: $EXPORT_PATH"
 
 MODEL_LEN_ARGS=""
 if [ -n "$MAX_MODEL_LEN" ]; then
