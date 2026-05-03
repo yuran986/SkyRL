@@ -6,7 +6,8 @@ This integration wraps the ARC-AGI-3 Toolkit as a `skyrl-gym` text environment s
 
 Use this file for the day-to-day workflow. The full environment walkthrough is in
 `/home/users/yz1051/SkyRL/ARC_AGI3_ENV_SETUP.md`; the actual launcher is
-`examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh`.
+`examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh`. A Chinese parameter guide is in
+`examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md`.
 
 The normal order is:
 
@@ -53,16 +54,16 @@ By default, observations include a full frame at initialization, compact diff su
 
 ## Train
 
-For a small smoke run:
+Recommended first run on 4x A6000 / 4x 6000 Ada / 4x A100:
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_2gpu \
-NUM_GPUS=2 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
+NUM_GPUS=4 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
-MAX_TURNS=10 \
+MAX_TURNS=8 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
 N_SAMPLES_PER_PROMPT=4 \
@@ -77,6 +78,11 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.micro_forward_batch_size_per_gpu=1 \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
+
+This is intentionally conservative. After it completes multiple global steps and writes
+checkpoints, increase one knob at a time: `MAX_INPUT_LENGTH=8192`, then
+`N_SAMPLES_PER_PROMPT=5`, then `TRAIN_BATCH_SIZE=8`, then `POLICY_MINI_BATCH_SIZE=4`.
+Keep `trainer.micro_train_batch_size_per_gpu=1` until memory is clearly stable.
 
 Infrastructure logs are written under `trainer.log_path`; with the command above, check
 `$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,

@@ -196,28 +196,50 @@ python -c "from examples.train_integrations.arc_agi3.env import parse_model_acti
 ```text
 examples/train_integrations/arc_agi3/README.md
 examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md
 ```
 
 本文件保留完整环境配置、参数解释和排错说明。真正开始训练时，优先从 integration
-README 的 `Train` 小节复制命令。
+README 的 `Train` 小节复制命令；需要逐项判断参数是否合理时，看同目录下的中文参数说明。
 
-先用小 batch、小模型、小步数跑通链路：
+推荐先用 4 卡保守配置跑通链路。这个配置目标是先稳定完成多个 global step、
+写出 checkpoint 和 rollout dump，不追求一开始就把 context 或 batch 拉满：
 
 ```bash
 set -a
 source .env
 set +a
+PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B \
-NUM_GPUS=1 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
+NUM_GPUS=4 \
 LOGGER=console \
+MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=8 \
-MAX_INPUT_LENGTH=8192 \
+MAX_INPUT_LENGTH=6144 \
+MAX_GENERATE_LENGTH=128 \
+N_SAMPLES_PER_PROMPT=4 \
+TRAIN_BATCH_SIZE=4 \
+POLICY_MINI_BATCH_SIZE=2 \
+CKPT_INTERVAL=1 \
+EVAL_INTERVAL=-1 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=1 \
   trainer.eval_before_train=false \
-  trainer.dump_data_batch=true
+  trainer.micro_train_batch_size_per_gpu=1 \
+  trainer.micro_forward_batch_size_per_gpu=1 \
+  trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
+
+如果这组参数能稳定跑完，再按顺序一次只放大一个参数：
+
+1. `MAX_INPUT_LENGTH=8192`
+2. `N_SAMPLES_PER_PROMPT=5`
+3. `TRAIN_BATCH_SIZE=8`
+4. `POLICY_MINI_BATCH_SIZE=4`
+
+暂时不要急着把 `trainer.micro_train_batch_size_per_gpu` 从 `1` 调回 `4`。此前
+2 卡 OOM 发生在 FSDP policy backward 阶段，micro batch 是主要放大器。
 
 检查点：
 
