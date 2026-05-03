@@ -252,6 +252,7 @@ trainer:
   logger: "wandb"
   log_example_interval: 1  # Log example prompt/response every N steps, -1 to disable.
   dump_data_batch: false
+  dump_rollout_logs: false
   dump_eval_results: true
 
   # YaRN:

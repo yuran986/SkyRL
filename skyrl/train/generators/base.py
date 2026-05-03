@@ -42,7 +42,9 @@ class GeneratorOutput(TypedDict):
     rollout_metrics: Optional[Dict[str, Any]]
     rollout_logprobs: Optional[List[List[float]]]
     trajectory_ids: Optional[List[TrajectoryID]]
+    env_metrics: Optional[List[Dict[str, Any]]]
     rollout_expert_indices: Optional[List[List[List[List[int]]]]]  # [batch_size, seq_len, layer_num, topk]
+    rollout_step_logs: Optional[List[List[Dict[str, Any]]]]
     # Applicable only for step-wise training
     is_last_step: Optional[List[bool]]
     # Applicable only for vision-language models

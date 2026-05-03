@@ -634,6 +634,7 @@ class TrainerConfig(BaseConfig):
     run_name: str = "test_run"
     logger: str = "wandb"
     dump_data_batch: bool = False
+    dump_rollout_logs: bool = False
     dump_eval_results: bool = True
     rope_scaling: Optional[Dict[str, Any]] = None
     rope_theta: Optional[float] = None

@@ -61,6 +61,9 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 Infrastructure logs are written under `trainer.log_path`; with the command above, check
 `$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,
 first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and `N_SAMPLES_PER_PROMPT`.
+Structured training rollouts are written to `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
+Each JSONL row contains one trajectory with per-turn action, observation, reward, reward components,
+diff stats, and environment state.
 
 The model should emit exactly one action per turn:
 

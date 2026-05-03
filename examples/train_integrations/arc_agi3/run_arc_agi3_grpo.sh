@@ -11,7 +11,7 @@ if [ -f .env ]; then
 fi
 
 : "${DATA_DIR:="$HOME/data/arc_agi3"}"
-: "${CKPT_PATH:="$HOME/ckpts/arc_agi3_3B"}"
+: "${CKPT_PATH:="/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B"}"
 : "${NUM_GPUS:=1}"
 : "${LOGGER:=wandb}"
 : "${MODEL_PATH:="Qwen/Qwen2.5-3B-Instruct"}"
@@ -89,8 +89,9 @@ uv run --isolated --extra fsdp --with arc-agi --with python-dotenv -m examples.t
   trainer.logger="$LOGGER" \
   trainer.project_name="arc_agi3" \
   trainer.run_name="$RUN_NAME" \
-  trainer.resume_mode=latest \
+  trainer.resume_mode=null \
   trainer.ckpt_path=$CKPT_PATH \
   trainer.export_path="$EXPORT_PATH" \
   trainer.dump_data_batch=true \
+  trainer.dump_rollout_logs=true \
   "$@"

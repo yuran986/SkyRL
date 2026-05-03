@@ -52,6 +52,7 @@ class TrajectoryOutput:
     rollout_logprobs: Optional[List[float]]
     env_metrics: Dict[str, Any]
     rollout_expert_indices: Optional[List[List[List[int]]]] = None
+    rollout_step_logs: Optional[List[Dict[str, Any]]] = None
     pixel_values: Optional[torch.Tensor] = None
     image_grid_thw: Optional[torch.Tensor] = None
 
@@ -300,6 +301,7 @@ class SkyRLGymGenerator(GeneratorInterface):
 
         # Accumulate per-step rewards. Format: (reward, response_end_token_idx)
         per_step_rewards: List[Tuple[float, Optional[int]]] = []
+        rollout_step_logs: List[Dict[str, Any]] = []
 
         is_step_wise = self.generator_cfg.step_wise_trajectories
 
@@ -375,6 +377,20 @@ class SkyRLGymGenerator(GeneratorInterface):
             step_reward: float = env_step_output["reward"]
             agent_loop_state.done = env_step_output["done"]
 
+            step_log = {
+                "session_id": session_id,
+                "turn": len(rollout_step_logs) + 1,
+                "env_class": env_class,
+                "env_extras": env_extras,
+                "model_output": output,
+                "reward": float(step_reward),
+                "done": bool(agent_loop_state.done),
+                "stop_reason": stop_reason,
+                "observations": new_obs,
+                "metadata": env_step_output.get("metadata", {}),
+            }
+            rollout_step_logs.append(step_log)
+
             if env_step_output.get("postprocessed_action", None) is not None:
                 # TODO(Charlie): come back to this, we should deprecate postprocessed action
                 logger.warning(
@@ -420,6 +436,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                     stop_reason=stop_reason,
                     env_metrics=env.get_metrics() if agent_loop_state.done else {},
                     rollout_expert_indices=turn_output.get_turn_rollout_expert_indices(),
+                    rollout_step_logs=[step_log],
                 )
                 agent_loop_output.step_outputs.append(per_step_output)
 
@@ -523,6 +540,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                 rollout_logprobs=rollout_logprobs,
                 env_metrics=env_metrics,
                 rollout_expert_indices=rollout_expert_indices_out,
+                rollout_step_logs=rollout_step_logs,
             )
 
         return agent_loop_output
@@ -781,6 +799,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             loss_masks = []
             prompt_token_ids = []
             env_metrics = []
+            rollout_step_logs = []
             is_last_step = []
             out_trajectory_ids = []
             out_env_classes = []
@@ -792,6 +811,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                     loss_masks.append(step_output.loss_mask)
                     prompt_token_ids.append(step_output.prompt_ids)
                     env_metrics.append(step_output.env_metrics)
+                    rollout_step_logs.append(step_output.rollout_step_logs)
                     is_last_step.append(j == len(output.step_outputs) - 1)
                     out_trajectory_ids.append(trajectory_ids[i])
                     out_env_classes.append(env_classes[i])
@@ -803,6 +823,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             loss_masks = [output.loss_mask for output in all_outputs]
             prompt_token_ids = [output.prompt_ids for output in all_outputs]
             env_metrics = [output.env_metrics for output in all_outputs]
+            rollout_step_logs = [output.rollout_step_logs for output in all_outputs]
             is_last_step = None
             out_trajectory_ids = None
 
@@ -855,6 +876,8 @@ class SkyRLGymGenerator(GeneratorInterface):
             "rollout_metrics": rollout_metrics,
             "rollout_logprobs": rollout_logprobs,
             "trajectory_ids": out_trajectory_ids,
+            "env_metrics": env_metrics,
+            "rollout_step_logs": rollout_step_logs,
             "rollout_expert_indices": rollout_expert_indices,
             "is_last_step": is_last_step,
         }

@@ -215,6 +215,7 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 - `uids` 是否按 prompt 正确分组。
 - `response_ids`、`loss_masks` 长度是否一致。
 - checkpoint 和 dump 是否写到预期目录。
+- 结构化训练 rollout 会写到 `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`，每行是一条 trajectory，包含每轮 action、observation、reward、reward_components、diff_stats 和 state。
 
 如果在 `Generating Trajectories` 前后看到
 `response_end_idx - initial_prompt_length` 的 `NoneType` 报错，通常是

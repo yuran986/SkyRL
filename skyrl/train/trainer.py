@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import shutil
@@ -251,6 +252,14 @@ class RayPPOTrainer:
                     # 1.2 postprocess rewards (and merge step-wise turns if enabled)
                     with Timer("postprocess_generator_output", self.all_timings):
                         generator_output, uids = self.postprocess_generator_output(generator_output, uids)
+
+                    if self.cfg.trainer.dump_rollout_logs:
+                        with Timer("dump_rollout_logs"):
+                            self.dump_rollout_logs(
+                                generator_output,
+                                uids,
+                                file_name=f"global_step_{self.global_step}_rollouts",
+                            )
 
                     # 2. print example just for debugging
                     log_interval = self.cfg.trainer.log_example_interval
@@ -949,6 +958,41 @@ class RayPPOTrainer:
         data_save_dir = Path(self.cfg.trainer.export_path) / "dumped_data"
         data_save_dir.mkdir(parents=True, exist_ok=True)
         data.save(data_save_dir / f"{file_name}.pkl")
+
+    def dump_rollout_logs(self, generator_output: GeneratorOutput, uids: List[str], file_name: str):
+        """
+        Dump structured rollout traces to JSONL for debugging environment behavior.
+        """
+        rollout_step_logs = generator_output.get("rollout_step_logs", None)
+        if rollout_step_logs is None:
+            logger.warning("trainer.dump_rollout_logs=true but generator output has no rollout_step_logs")
+            return
+
+        dump_dir = Path(self.cfg.trainer.export_path) / "dumped_rollouts"
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = dump_dir / f"{file_name}.jsonl"
+
+        rewards = generator_output["rewards"]
+        stop_reasons = generator_output.get("stop_reasons", None)
+        env_metrics = generator_output.get("env_metrics", None)
+
+        with dump_path.open("w", encoding="utf-8") as f:
+            for sample_index, steps in enumerate(rollout_step_logs):
+                reward = rewards[sample_index]
+                total_reward = float(sum(reward)) if isinstance(reward, list) else float(reward)
+                row = {
+                    "global_step": self.global_step,
+                    "sample_index": sample_index,
+                    "uid": uids[sample_index] if sample_index < len(uids) else None,
+                    "total_reward": total_reward,
+                    "stop_reason": stop_reasons[sample_index] if stop_reasons is not None else None,
+                    "num_steps": len(steps) if steps is not None else 0,
+                    "env_metrics": env_metrics[sample_index] if env_metrics is not None else None,
+                    "steps": steps or [],
+                }
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+        logger.info(f"Dumped rollout logs to {dump_path}")
 
     @torch.no_grad()
     def fwd_logprobs_values_reward(
