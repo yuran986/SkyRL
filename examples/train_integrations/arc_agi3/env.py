@@ -377,6 +377,7 @@ class ArcAgi3Env(BaseTextEnv):
 
         parsed: ParsedAction | None = None
         reward_components: dict[str, float] = {}
+        diff_metadata = None
         try:
             parsed = parse_model_action(action)
             step_output = self._apply_action(parsed)
@@ -408,6 +409,9 @@ class ArcAgi3Env(BaseTextEnv):
             step_output=step_output,
             diff_stats=diff_stats,
         )
+        diff_metadata = _diff_metadata(diff_stats)
+        if diff_metadata is not None:
+            diff_metadata["meaningful"] = self._has_meaningful_diff(diff_stats)
         if self.done:
             observations: ConversationType = []
         else:
@@ -428,7 +432,7 @@ class ArcAgi3Env(BaseTextEnv):
                 "model_output": action,
                 "parsed_action": _parsed_action_metadata(parsed),
                 "reward_components": reward_components,
-                "diff_stats": _diff_metadata(diff_stats),
+                "diff_stats": diff_metadata,
                 "state": self._state_metadata(step_output),
             },
         )
@@ -437,6 +441,9 @@ class ArcAgi3Env(BaseTextEnv):
         action_members = getattr(self.GameAction, "__members__", {})
         if parsed.name not in action_members:
             raise ValueError(f"unknown action {parsed.name}; available={sorted(action_members.keys())}")
+        allowed_actions = self._allowed_action_names()
+        if allowed_actions and parsed.name not in allowed_actions:
+            raise ValueError(f"action {parsed.name} is not currently available; available={sorted(allowed_actions)}")
         action_enum = action_members[parsed.name]
         if parsed.name == "ACTION6":
             return self.env.step(action_enum, data={"x": int(parsed.x), "y": int(parsed.y)})
@@ -562,10 +569,25 @@ class ArcAgi3Env(BaseTextEnv):
         return frame_lines
 
     def _action_space_text(self) -> str:
-        action_members = getattr(self.GameAction, "__members__", {})
-        canonical_actions = sorted(action_members.keys())
+        available_actions = sorted(self._allowed_action_names())
         raw_action_space = repr(getattr(self.env, "action_space", None))
-        return f"{canonical_actions}; raw={raw_action_space}"
+        return f"{available_actions}; raw={raw_action_space}"
+
+    def _allowed_action_names(self) -> set[str]:
+        raw_action_space = getattr(self.env, "action_space", None)
+        if raw_action_space is None:
+            return set()
+        if isinstance(raw_action_space, (list, tuple, set)):
+            items = raw_action_space
+        else:
+            items = getattr(raw_action_space, "actions", None) or getattr(raw_action_space, "values", None)
+            if items is None:
+                try:
+                    items = list(raw_action_space)
+                except TypeError:
+                    items = []
+        names = {_enum_name(item) for item in items}
+        return {name for name in names if name}
 
     def _read_levels_completed(self, source: Any) -> int:
         value = getattr(source, "levels_completed", None)
