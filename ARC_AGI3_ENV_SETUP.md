@@ -84,6 +84,10 @@ uv run --isolated --extra fsdp --with arc-agi --with python-dotenv -m ...
 ```bash
 OPERATION_MODE=OFFLINE
 ARC_AGI3_ENVIRONMENTS_DIR=/home/users/yz1051/rlm/environment_files
+ARC_AGI3_FRAME_OBSERVATION_MODE=initial_full_then_diff
+ARC_AGI3_FULL_FRAME_INTERVAL=8
+ARC_AGI3_PATCH_RADIUS=4
+ARC_AGI3_MAX_DIFF_EXAMPLES=32
 ```
 
 `.env` 是本机配置，当前 `.gitignore` 已忽略它；`.env.example` 是可提交模板。后续如果要在线提交或拉取远程 game，在 `.env` 中补：
@@ -127,6 +131,8 @@ python -c "import os, arc_agi; from arc_agi import OperationMode; from arcengine
 - `ModuleNotFoundError: arc_agi`：没有安装 `arc-agi` 或没有激活 venv。
 - 找不到 `ft09`：`environments_dir` 路径不对，或 game 文件结构不符合 toolkit 预期。
 - `ACTION6 requires x/y`：坐标动作必须带 `data={"x": int, "y": int}`。
+
+当前默认 observation 策略是 `initial_full_then_diff`：初始给完整 frame 的 hex rows；每轮给 diff summary 和 changed patch；每 8 轮刷新一次完整当前 frame。
 
 ## 6. 准备 SkyRL integration 数据
 

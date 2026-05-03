@@ -52,6 +52,13 @@ class FrameDiffStats:
     examples: list[dict[str, Any]]
 
 
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_plain(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -144,6 +151,69 @@ def _grid_from_frame(frame_like: Any) -> list[list[Any]] | None:
             frame = frame[0]
         return frame
     return None
+
+
+def _format_cell(value: Any) -> str:
+    if isinstance(value, int) and 0 <= value <= 15:
+        return format(value, "x")
+    try:
+        intval = int(value)
+    except (TypeError, ValueError):
+        return "?"
+    if 0 <= intval <= 15:
+        return format(intval, "x")
+    return "?"
+
+
+def _format_hex_rows(grid: list[list[Any]], y_offset: int = 0, max_rows: int | None = None) -> str:
+    rows = grid if max_rows is None else grid[:max_rows]
+    width = max((len(row) for row in rows), default=0)
+    lines = []
+    for idx, row in enumerate(rows):
+        encoded = "".join(_format_cell(cell) for cell in row)
+        lines.append(f"y{y_offset + idx:02d}: {encoded}")
+    if max_rows is not None and len(grid) > max_rows:
+        lines.append(f"... truncated {len(grid) - max_rows} rows")
+    return f"shape={len(grid)}x{width} encoding=hex_0_to_f\n" + "\n".join(lines)
+
+
+def _format_full_frame(frame_like: Any, max_rows: int | None = None) -> str:
+    grid = _grid_from_frame(frame_like)
+    if grid is None:
+        return "current_frame: unavailable"
+    return "current_frame:\n" + _format_hex_rows(grid, max_rows=max_rows)
+
+
+def _crop_grid(
+    grid: list[list[Any]], x1: int, y1: int, x2: int, y2: int
+) -> tuple[list[list[Any]], tuple[int, int, int, int]]:
+    if not grid:
+        return [], (0, 0, 0, 0)
+    height = len(grid)
+    width = max((len(row) for row in grid), default=0)
+    x1 = max(0, min(x1, max(0, width - 1)))
+    x2 = max(0, min(x2, max(0, width - 1)))
+    y1 = max(0, min(y1, max(0, height - 1)))
+    y2 = max(0, min(y2, max(0, height - 1)))
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    cropped = []
+    for row in grid[y1 : y2 + 1]:
+        cropped.append(row[x1 : x2 + 1])
+    return cropped, (x1, y1, x2, y2)
+
+
+def _format_diff_patch(frame_like: Any, diff_stats: FrameDiffStats | None, radius: int) -> str:
+    if diff_stats is None or diff_stats.bbox is None or diff_stats.num_changes == 0:
+        return "changed_patch: none"
+    grid = _grid_from_frame(frame_like)
+    if grid is None:
+        return "changed_patch: unavailable"
+    x1, y1, x2, y2 = diff_stats.bbox
+    patch, (cx1, cy1, cx2, cy2) = _crop_grid(grid, x1 - radius, y1 - radius, x2 + radius, y2 + radius)
+    return f"changed_patch: x={cx1}..{cx2} y={cy1}..{cy2}\n" + _format_hex_rows(patch, y_offset=cy1)
 
 
 def _diff_stats(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> FrameDiffStats | None:
@@ -243,6 +313,14 @@ class ArcAgi3Env(BaseTextEnv):
         self.meaningful_diff_reward = float(self.extras.get("meaningful_diff_reward", 0.05))
         self.min_meaningful_diff_changes = int(self.extras.get("min_meaningful_diff_changes", 1))
         self.max_meaningful_diff_changes = int(self.extras.get("max_meaningful_diff_changes", 512))
+        self.frame_observation_mode = str(self.extras.get("frame_observation_mode", "initial_full_then_diff"))
+        self.full_frame_interval = int(self.extras.get("full_frame_interval", 8))
+        self.patch_radius = int(self.extras.get("patch_radius", 4))
+        self.max_diff_examples = int(self.extras.get("max_diff_examples", 32))
+        self.max_full_frame_rows = self.extras.get("max_full_frame_rows")
+        self.max_full_frame_rows = (
+            None if self.max_full_frame_rows in (None, "", "none", "None") else int(self.max_full_frame_rows)
+        )
 
         self.arc = None
         self.env = None
@@ -312,7 +390,7 @@ class ArcAgi3Env(BaseTextEnv):
 
         if step_output is not None:
             current_frame = _to_plain(getattr(step_output, "frame", None))
-            diff_stats = _diff_stats(self.last_frame, current_frame)
+            diff_stats = _diff_stats(self.last_frame, current_frame, max_examples=self.max_diff_examples)
             reward, reward_components = self._compute_reward(step_output, diff_stats)
             self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
             self.success = self._is_success(step_output)
@@ -408,8 +486,23 @@ class ArcAgi3Env(BaseTextEnv):
         current_frame = _to_plain(getattr(source, "frame", None))
         if initial:
             diff = "frame_diff: initial"
+            frame_lines = self._frame_observation_lines(
+                initial=initial,
+                current_frame=current_frame,
+                diff_stats=None,
+                levels_completed=levels_completed,
+            )
         else:
-            diff = _diff_summary(diff_stats if diff_stats is not None else _diff_stats(self.last_frame, current_frame))
+            diff_stats = diff_stats if diff_stats is not None else _diff_stats(
+                self.last_frame, current_frame, max_examples=self.max_diff_examples
+            )
+            diff = _diff_summary(diff_stats)
+            frame_lines = self._frame_observation_lines(
+                initial=initial,
+                current_frame=current_frame,
+                diff_stats=diff_stats,
+                levels_completed=levels_completed,
+            )
         if current_frame is not None:
             self.last_frame = current_frame
 
@@ -423,6 +516,7 @@ class ArcAgi3Env(BaseTextEnv):
             f"available_actions={action_space}",
             diff,
         ]
+        lines.extend(frame_lines)
         if action is not None:
             lines.append(f"last_model_output={action.strip()[:500]}")
             lines.append(f"last_action_valid={valid_action}")
@@ -433,6 +527,39 @@ class ArcAgi3Env(BaseTextEnv):
             'Use {"action":"ACTION6","x":32,"y":32} for coordinate clicks.'
         )
         return "\n".join(lines)
+
+    def _frame_observation_lines(
+        self,
+        initial: bool,
+        current_frame: Any,
+        diff_stats: FrameDiffStats | None,
+        levels_completed: int,
+    ) -> list[str]:
+        mode = self.frame_observation_mode
+        if mode == "none":
+            return []
+
+        include_full_frame = False
+        if mode == "full_every_turn":
+            include_full_frame = True
+        elif mode == "initial_full_then_diff":
+            include_full_frame = initial
+            include_full_frame = include_full_frame or (
+                self.full_frame_interval > 0 and self.turns > 0 and self.turns % self.full_frame_interval == 0
+            )
+            include_full_frame = include_full_frame or levels_completed > self.last_levels_completed
+            include_full_frame = include_full_frame or self.done
+        else:
+            include_full_frame = initial
+
+        frame_lines = []
+        if include_full_frame:
+            frame_lines.append(_format_full_frame(current_frame, max_rows=self.max_full_frame_rows))
+        if mode == "full_every_turn":
+            return frame_lines
+        if diff_stats is not None and diff_stats.num_changes > 0:
+            frame_lines.append(_format_diff_patch(current_frame, diff_stats, radius=self.patch_radius))
+        return frame_lines
 
     def _action_space_text(self) -> str:
         action_members = getattr(self.GameAction, "__members__", {})

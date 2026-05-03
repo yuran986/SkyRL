@@ -42,6 +42,10 @@ def main() -> None:
     parser.add_argument("--max_steps", type=int, default=int(os.getenv("ARC_AGI3_MAX_STEPS", "16")))
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
     parser.add_argument("--environments_dir", default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
+    parser.add_argument("--frame_observation_mode", default=os.getenv("ARC_AGI3_FRAME_OBSERVATION_MODE", "initial_full_then_diff"))
+    parser.add_argument("--full_frame_interval", type=int, default=int(os.getenv("ARC_AGI3_FULL_FRAME_INTERVAL", "8")))
+    parser.add_argument("--patch_radius", type=int, default=int(os.getenv("ARC_AGI3_PATCH_RADIUS", "4")))
+    parser.add_argument("--max_diff_examples", type=int, default=int(os.getenv("ARC_AGI3_MAX_DIFF_EXAMPLES", "32")))
     parser.add_argument("--action", action="append", dest="actions", help="Action string. May be passed repeatedly.")
     args = parser.parse_args()
 
@@ -54,6 +58,10 @@ def main() -> None:
             "max_steps": args.max_steps,
             "operation_mode": args.operation_mode,
             "environments_dir": args.environments_dir,
+            "frame_observation_mode": args.frame_observation_mode,
+            "full_frame_interval": args.full_frame_interval,
+            "patch_radius": args.patch_radius,
+            "max_diff_examples": args.max_diff_examples,
         },
     )
 

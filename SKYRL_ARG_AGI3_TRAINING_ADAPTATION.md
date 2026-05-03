@@ -142,13 +142,20 @@ generator.eval_sampling_params.stop='["</action>"]'
 
 ### 5.3 Observation 序列化
 
-第一版建议返回紧凑文本，不把完整 frame 每轮塞进上下文。可包含：
+当前 integration 使用可配置的 frame observation 策略，默认是 `initial_full_then_diff`：
+
+- 初始 observation 给完整当前 frame，用 `hex_rows_0_to_f` 表示。
+- 每轮 observation 给 state、score、levels_completed、action space、diff summary。
+- 如果相邻帧发生变化，给 diff bbox 附近的 changed patch。
+- 每隔 `full_frame_interval` 轮刷新一次完整当前 frame，默认 8。
+
+每轮文本还包含：
 
 - 当前 `state`、`score`、`levels_completed`。
 - 当前可用动作列表。
 - 上一步动作和是否有效。
 - 与上一帧的 diff 摘要：变化 cell 数量、bounding box、颜色变化统计、若干代表坐标。
-- 必要时给局部 patch，而不是完整 64x64 frame。
+- 初始/周期性完整 frame，以及必要的局部 patch。
 
 示例 observation：
 
@@ -156,11 +163,17 @@ generator.eval_sampling_params.stop='["</action>"]'
 state=NOT_FINISHED score=12 levels_completed=2
 available_actions=[ACTION1,ACTION2,ACTION6]
 last_action=ACTION6 x=32 y=32 valid=true
-frame_diff: num_changes=14 bbox=(20,18)-(35,33) colors 9->0:8, 0->9:6
+current_frame:
+shape=64x64 encoding=hex_0_to_f
+y00: 000000...
+...
+frame_diff: num_changes=14 bbox=(20,18)-(35,33) colors=9->0:8, 0->9:6
+changed_patch: x=16..39 y=14..37
+y14: 000...
 Choose exactly one next action inside <action>...</action>.
 ```
 
-完整 frame 应保存在环境内部，用于计算 diff 和 metrics；debug 时再写 JSONL，不默认放进模型上下文。
+完整 frame 不再完全隐藏：初始和周期性同步会进入模型上下文。训练时仍避免每轮无脑塞完整 frame，防止长轨迹上下文爆炸。
 
 ### 5.4 Reward 设计
 

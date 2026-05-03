@@ -18,6 +18,10 @@ Create or edit `.env`:
 ```bash
 OPERATION_MODE=OFFLINE
 ARC_AGI3_ENVIRONMENTS_DIR=/home/users/yz1051/rlm/environment_files
+ARC_AGI3_FRAME_OBSERVATION_MODE=initial_full_then_diff
+ARC_AGI3_FULL_FRAME_INTERVAL=8
+ARC_AGI3_PATCH_RADIUS=4
+ARC_AGI3_MAX_DIFF_EXAMPLES=32
 ```
 
 ## Prepare Data
@@ -32,6 +36,7 @@ python examples/train_integrations/arc_agi3/prepare_dataset.py \
 ```
 
 The generated parquet files contain `prompt`, `env_class`, and per-episode extras such as `task_id`, `seed`, `operation_mode`, and `environments_dir`.
+By default, observations include a full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
 
 ## Train
 

@@ -27,6 +27,10 @@ def build_rows(
     operation_mode: str,
     max_steps: int,
     prompt: str,
+    frame_observation_mode: str,
+    full_frame_interval: int,
+    patch_radius: int,
+    max_diff_examples: int,
 ) -> list[dict]:
     combos = [(task_id, seed) for task_id in task_ids for seed in seeds]
     if not combos:
@@ -46,6 +50,10 @@ def build_rows(
                 "max_steps": max_steps,
                 "operation_mode": operation_mode,
                 "environments_dir": environments_dir,
+                "frame_observation_mode": frame_observation_mode,
+                "full_frame_interval": full_frame_interval,
+                "patch_radius": patch_radius,
+                "max_diff_examples": max_diff_examples,
             }
         )
     return rows
@@ -62,6 +70,10 @@ def main() -> None:
     parser.add_argument("--max_steps", type=int, default=int(os.getenv("ARC_AGI3_MAX_STEPS", "64")))
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
     parser.add_argument("--environments_dir", default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
+    parser.add_argument("--frame_observation_mode", default=os.getenv("ARC_AGI3_FRAME_OBSERVATION_MODE", "initial_full_then_diff"))
+    parser.add_argument("--full_frame_interval", type=int, default=int(os.getenv("ARC_AGI3_FULL_FRAME_INTERVAL", "8")))
+    parser.add_argument("--patch_radius", type=int, default=int(os.getenv("ARC_AGI3_PATCH_RADIUS", "4")))
+    parser.add_argument("--max_diff_examples", type=int, default=int(os.getenv("ARC_AGI3_MAX_DIFF_EXAMPLES", "32")))
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     args = parser.parse_args()
 
@@ -79,6 +91,10 @@ def main() -> None:
         operation_mode=args.operation_mode,
         max_steps=args.max_steps,
         prompt=args.prompt,
+        frame_observation_mode=args.frame_observation_mode,
+        full_frame_interval=args.full_frame_interval,
+        patch_radius=args.patch_radius,
+        max_diff_examples=args.max_diff_examples,
     )
     val_rows = build_rows(
         task_ids=task_ids,
@@ -89,6 +105,10 @@ def main() -> None:
         operation_mode=args.operation_mode,
         max_steps=args.max_steps,
         prompt=args.prompt,
+        frame_observation_mode=args.frame_observation_mode,
+        full_frame_interval=args.full_frame_interval,
+        patch_radius=args.patch_radius,
+        max_diff_examples=args.max_diff_examples,
     )
 
     Dataset.from_list(train_rows).to_parquet(str(output_dir / "train.parquet"))
