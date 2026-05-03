@@ -363,7 +363,8 @@ $HOME/exports/arc_agi3/${RUN_NAME}_YYYYmmdd_HHMMSS
 `EXPORT_PATH=/some/path`，脚本会使用你给的固定路径；这种情况下同名
 `global_step_*` 文件仍可能被覆盖。
 
-`dumped_rollouts` 每行是一条 trajectory，包含每轮：
+`dumped_rollouts` 每行是一条 trajectory，包含模型第一轮生成前看到的
+`initial_messages`，以及每轮：
 
 ```text
 turn, model_output, reward, done, observations, parsed_action,
@@ -384,6 +385,9 @@ jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollou
 
 jq '{sample_index, uid, total_reward, num_steps}' \
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"
+
+jq -r '.initial_messages[-1].content' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
+  | head -n 90
 
 jq '.steps[] | {turn, reward, parsed_action: .metadata.parsed_action, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"

@@ -91,8 +91,8 @@ By default, `run_arc_agi3_grpo.sh` creates a unique export directory for each ru
 `$HOME/exports/arc_agi3/${RUN_NAME}_YYYYmmdd_HHMMSS`. The script prints the resolved
 `ARC-AGI-3 export path` at startup. Structured training rollouts are written to
 `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
-Each JSONL row contains one trajectory with per-turn action, observation, reward, reward components,
-diff stats, and environment state.
+Each JSONL row contains one trajectory with the initial prompt/messages seen by the model,
+per-turn action, observation, reward, reward components, diff stats, and environment state.
 
 Useful rollout checks:
 
@@ -105,6 +105,9 @@ python examples/train_integrations/arc_agi3/visualize_rollouts.py \
 
 jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
   | sort | uniq -c | sort -nr
+
+jq -r '.initial_messages[-1].content' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
+  | head -n 90
 
 jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, diff_stats: .metadata.diff_stats}' \
   "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl"

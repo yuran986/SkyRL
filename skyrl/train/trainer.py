@@ -975,6 +975,7 @@ class RayPPOTrainer:
         rewards = generator_output["rewards"]
         stop_reasons = generator_output.get("stop_reasons", None)
         env_metrics = generator_output.get("env_metrics", None)
+        initial_messages = generator_output.get("rollout_initial_messages", None)
 
         with dump_path.open("w", encoding="utf-8") as f:
             for sample_index, steps in enumerate(rollout_step_logs):
@@ -988,6 +989,7 @@ class RayPPOTrainer:
                     "stop_reason": stop_reasons[sample_index] if stop_reasons is not None else None,
                     "num_steps": len(steps) if steps is not None else 0,
                     "env_metrics": env_metrics[sample_index] if env_metrics is not None else None,
+                    "initial_messages": initial_messages[sample_index] if initial_messages is not None else None,
                     "steps": steps or [],
                 }
                 f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")

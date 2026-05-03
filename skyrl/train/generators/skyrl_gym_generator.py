@@ -53,6 +53,7 @@ class TrajectoryOutput:
     env_metrics: Dict[str, Any]
     rollout_expert_indices: Optional[List[List[List[int]]]] = None
     rollout_step_logs: Optional[List[Dict[str, Any]]] = None
+    rollout_initial_messages: Optional[ConversationType] = None
     pixel_values: Optional[torch.Tensor] = None
     image_grid_thw: Optional[torch.Tensor] = None
 
@@ -277,6 +278,7 @@ class SkyRLGymGenerator(GeneratorInterface):
 
         # init() returns the first prompt to be given to the model, and optional metadata dict
         chat_history, _ = await self._run_in_executor_if_available(env.init, chat_history)
+        rollout_initial_messages = copy.deepcopy(chat_history)
         initial_chat_history_length = len(chat_history)
         initial_input_ids = self.tokenizer.apply_chat_template(
             chat_history,
@@ -437,6 +439,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                     env_metrics=env.get_metrics() if agent_loop_state.done else {},
                     rollout_expert_indices=turn_output.get_turn_rollout_expert_indices(),
                     rollout_step_logs=[step_log],
+                    rollout_initial_messages=rollout_initial_messages if not agent_loop_output.step_outputs else None,
                 )
                 agent_loop_output.step_outputs.append(per_step_output)
 
@@ -541,6 +544,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                 env_metrics=env_metrics,
                 rollout_expert_indices=rollout_expert_indices_out,
                 rollout_step_logs=rollout_step_logs,
+                rollout_initial_messages=rollout_initial_messages,
             )
 
         return agent_loop_output
@@ -800,6 +804,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             prompt_token_ids = []
             env_metrics = []
             rollout_step_logs = []
+            rollout_initial_messages = []
             is_last_step = []
             out_trajectory_ids = []
             out_env_classes = []
@@ -812,6 +817,7 @@ class SkyRLGymGenerator(GeneratorInterface):
                     prompt_token_ids.append(step_output.prompt_ids)
                     env_metrics.append(step_output.env_metrics)
                     rollout_step_logs.append(step_output.rollout_step_logs)
+                    rollout_initial_messages.append(step_output.rollout_initial_messages)
                     is_last_step.append(j == len(output.step_outputs) - 1)
                     out_trajectory_ids.append(trajectory_ids[i])
                     out_env_classes.append(env_classes[i])
@@ -824,6 +830,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             prompt_token_ids = [output.prompt_ids for output in all_outputs]
             env_metrics = [output.env_metrics for output in all_outputs]
             rollout_step_logs = [output.rollout_step_logs for output in all_outputs]
+            rollout_initial_messages = [output.rollout_initial_messages for output in all_outputs]
             is_last_step = None
             out_trajectory_ids = None
 
@@ -878,6 +885,7 @@ class SkyRLGymGenerator(GeneratorInterface):
             "trajectory_ids": out_trajectory_ids,
             "env_metrics": env_metrics,
             "rollout_step_logs": rollout_step_logs,
+            "rollout_initial_messages": rollout_initial_messages,
             "rollout_expert_indices": rollout_expert_indices,
             "is_last_step": is_last_step,
         }
