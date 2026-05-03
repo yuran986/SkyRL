@@ -46,10 +46,11 @@ For a small smoke run:
 DATA_DIR=$HOME/data/arc_agi3 \
 NUM_GPUS=1 \
 LOGGER=console \
-MAX_TURNS=16 \
-N_SAMPLES_PER_PROMPT=4 \
-TRAIN_BATCH_SIZE=2 \
-POLICY_MINI_BATCH_SIZE=2 \
+MAX_TURNS=8 \
+MAX_INPUT_LENGTH=8192 \
+N_SAMPLES_PER_PROMPT=5 \
+TRAIN_BATCH_SIZE=8 \
+POLICY_MINI_BATCH_SIZE=8 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=1 \
   trainer.eval_before_train=false

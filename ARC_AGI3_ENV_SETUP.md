@@ -200,12 +200,10 @@ set +a
 DATA_DIR=$HOME/data/arc_agi3 \
 NUM_GPUS=1 \
 LOGGER=console \
-MAX_TURNS=16 \
+MAX_TURNS=8 \
+MAX_INPUT_LENGTH=8192 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=1 \
-  trainer.train_batch_size=2 \
-  trainer.policy_mini_batch_size=2 \
-  generator.n_samples_per_prompt=4 \
   trainer.eval_before_train=false \
   trainer.dump_data_batch=true
 ```
@@ -217,6 +215,61 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 - `uids` 是否按 prompt 正确分组。
 - `response_ids`、`loss_masks` 长度是否一致。
 - checkpoint 和 dump 是否写到预期目录。
+
+如果在 `Generating Trajectories` 前后看到
+`response_end_idx - initial_prompt_length` 的 `NoneType` 报错，通常是
+`prompt + env.init()` 超过了 `generator.max_input_length`。ARC-AGI-3 的初始
+observation 会包含完整 frame，训练脚本默认使用 `MAX_INPUT_LENGTH=8192`；
+需要更长上下文时可继续调大，例如 `MAX_INPUT_LENGTH=12288`。
+
+长度相关参数分四层：
+
+- `trainer.max_prompt_length`：dataset 读入时过滤初始 prompt 的长度，不包含
+  `env.init()` 追加的初始 observation。
+- `generator.max_input_length`：rollout 中每轮调用模型前的累计上下文上限，包含
+  初始 prompt、初始 frame、历史 action、历史 observation/diff。
+- `generator.sampling_params.max_generate_length`：每一轮模型最多生成多少 token。
+  ARC-AGI-3 只需要输出一个 action，默认 `128`。
+- `generator.inference_engine.engine_init_kwargs.max_model_len`：vLLM 单次请求允许的
+  `input tokens + generated tokens` 总窗口。通常应满足
+  `max_model_len >= generator.max_input_length + max_generate_length`。
+
+训练脚本用 shell 变量映射这些配置：
+
+```bash
+MAX_INPUT_LENGTH=8192        # 同时传给 trainer.max_prompt_length 和 generator.max_input_length
+MAX_GENERATE_LENGTH=128      # 传给 generator.sampling_params.max_generate_length
+MAX_MODEL_LEN=32768          # 可选；传给 vLLM max_model_len，不设时使用模型/框架默认
+```
+
+如果 vLLM 日志里显示 `Using max model len 32768`，而
+`MAX_INPUT_LENGTH + MAX_GENERATE_LENGTH` 小于 32768，就不需要额外设置
+`MAX_MODEL_LEN`。
+
+`run_arc_agi3_grpo.sh` 的同步配置参考了 `examples/train/search/run_search.sh`：
+`generator.batched=false`、conversation multi-turn、`n_samples_per_prompt=5`、
+`environment.skyrl_gym.max_env_workers=16`、`gpu_memory_utilization=0.5`、默认关闭
+训练前 eval。不同之处是 ARC-AGI-3 的初始 frame 更长，因此默认
+`MAX_INPUT_LENGTH=8192`，而每轮只需要输出一个 action，所以
+`MAX_GENERATE_LENGTH=128`。
+
+默认模型使用 `Qwen/Qwen2.5-3B-Instruct`。冷启动阶段建议优先使用 instruct
+模型，因为它更容易遵循 `<action>...</action>` 和 JSON 坐标格式；base 模型更适合
+已有 SFT warm start 或想从更原始策略开始做大规模 RL 的场景。
+
+单卡 smoke run 可用：
+
+```bash
+DATA_DIR=$HOME/data/arc_agi3 \
+NUM_GPUS=1 \
+LOGGER=console \
+MAX_TURNS=8 \
+TRAIN_BATCH_SIZE=8 \
+POLICY_MINI_BATCH_SIZE=8 \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
+  trainer.epochs=1 \
+  trainer.eval_before_train=false
+```
 
 ## 9. 推荐训练配置
 
