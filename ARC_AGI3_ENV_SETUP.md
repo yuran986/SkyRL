@@ -373,11 +373,37 @@ rate、avg turns、avg levels completed 和 success rate。它也支持按 rewar
 action、positive step 和关键字筛选 trajectory，并展示每轮 `<think>`、`<action>`、
 observation、reward components、diff stats 和原始 step JSON。
 
-SkyRL 原生 tracker 通过 `trainer.logger` / 脚本里的 `LOGGER` 控制，支持
-`wandb`、`mlflow`、`swanlab`、`tensorboard` 和 `console`。长期训练建议用这些 tracker
-看 reward、KL、entropy、loss、response length、timing 和 eval pass rate；静态
-rollout viewer 主要用于排查模型具体行为、动作合法性、reward 是否被刷和 observation
-是否足够。
+SkyRL 原生 metric tracker 通过 `trainer.logger` / 脚本里的 `LOGGER` 控制，支持
+`wandb`、`mlflow`、`swanlab`、`tensorboard` 和 `console`。`LOGGER` 只控制训练指标上报；
+`trainer.log_path` 仍然控制 infra/router 日志文件位置，两者不是同一个概念。
+
+日常选择：
+
+- `console`：无需配置，指标直接打印到终端，适合 smoke run 和排错。
+- `tensorboard`：本地曲线，适合 SSH 服务器长期观察；事件文件写到 `TENSORBOARD_DIR`
+  或默认 `tensorboard_log`，不是 `trainer.log_path`。
+- `wandb`：云端实验管理，适合多组实验对比；SkyRL 会要求 `WANDB_API_KEY`。
+- `swanlab`：类似 wandb，可用 `SWANLAB_API_KEY`、`SWANLAB_LOG_DIR`、`SWANLAB_MODE`
+  控制登录、目录和 cloud/local 模式。
+- `mlflow`：适合已有 MLflow tracking server 的团队；常用 `MLFLOW_TRACKING_URI`。
+
+示例：
+
+```bash
+LOGGER=console bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+
+TENSORBOARD_DIR=$HOME/skyrl_logs/arc_agi3/tensorboard \
+LOGGER=tensorboard \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+
+WANDB_API_KEY=... LOGGER=wandb bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+SWANLAB_API_KEY=... LOGGER=swanlab bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+MLFLOW_TRACKING_URI=http://host:5000 LOGGER=mlflow bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+```
+
+这些 tracker 适合看 reward、KL、entropy、loss、response length、timing 和 eval pass
+rate；静态 rollout viewer 主要用于排查模型具体行为、动作合法性、reward 是否被刷和
+observation 是否足够。
 
 ## 11. 参考资料
 

@@ -56,19 +56,25 @@ By default, observations include a full frame at initialization, compact diff su
 For a small smoke run:
 
 ```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B \
-NUM_GPUS=1 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_2gpu \
+NUM_GPUS=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
-MAX_TURNS=8 \
-MAX_INPUT_LENGTH=8192 \
-N_SAMPLES_PER_PROMPT=5 \
-TRAIN_BATCH_SIZE=8 \
-POLICY_MINI_BATCH_SIZE=8 \
+MAX_TURNS=10 \
+MAX_INPUT_LENGTH=6144 \
+MAX_GENERATE_LENGTH=128 \
+N_SAMPLES_PER_PROMPT=4 \
+TRAIN_BATCH_SIZE=4 \
+POLICY_MINI_BATCH_SIZE=2 \
+CKPT_INTERVAL=1 \
+EVAL_INTERVAL=-1 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=1 \
   trainer.eval_before_train=false \
+  trainer.micro_train_batch_size_per_gpu=1 \
+  trainer.micro_forward_batch_size_per_gpu=1 \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
 
@@ -102,10 +108,31 @@ Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer s
 training curves by `global_step`, summary metrics, trajectory filters, per-turn `<think>`,
 `<action>`, reward components, diff stats, observations, and raw step JSON.
 
-SkyRL also supports native metric trackers through `LOGGER`: `wandb`, `mlflow`, `swanlab`,
-`tensorboard`, and `console`. Use those for normal training curves such as reward, KL, entropy,
-loss, response length, timing, and eval pass rate. Use this static viewer to debug behavior and
-reward assignment inside individual rollouts.
+## Metric Loggers
+
+`LOGGER` is passed to `trainer.logger` and controls the metric tracker. It is separate from
+`trainer.log_path`, which stores infrastructure logs such as `infra-*.log` and `router-*.log`.
+For smoke tests, keep `LOGGER=console`; for longer runs, prefer `tensorboard`, `wandb`, or
+`swanlab`.
+
+```bash
+LOGGER=console bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+
+TENSORBOARD_DIR=$HOME/skyrl_logs/arc_agi3/tensorboard \
+LOGGER=tensorboard \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+
+WANDB_API_KEY=... LOGGER=wandb bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+SWANLAB_API_KEY=... LOGGER=swanlab bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+MLFLOW_TRACKING_URI=http://host:5000 LOGGER=mlflow bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
+```
+
+`console` needs no setup. `tensorboard` writes event files to `TENSORBOARD_DIR` or
+`tensorboard_log` if unset. `wandb` requires `WANDB_API_KEY`; `swanlab` can use
+`SWANLAB_API_KEY`, `SWANLAB_LOG_DIR`, and `SWANLAB_MODE`; `mlflow` uses
+`MLFLOW_TRACKING_URI` when set. These trackers are for normal training curves such as reward,
+KL, entropy, loss, response length, timing, and eval pass rate. Use the static rollout viewer to
+debug behavior and reward assignment inside individual trajectories.
 
 The model should emit brief reasoning followed by exactly one executable action per turn:
 
