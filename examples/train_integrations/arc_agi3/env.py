@@ -530,8 +530,8 @@ class ArcAgi3Env(BaseTextEnv):
         if error:
             lines.append(f"action_error={error}")
         lines.append(
-            'Return exactly one next action in <action>...</action>. '
-            'Use {"action":"ACTION6","x":32,"y":32} for coordinate clicks.'
+            'Respond with brief reasoning in <think>...</think>, then exactly one next action in <action>...</action>. '
+            'Use {"action":"ACTION6","x":32,"y":32} inside <action> for coordinate clicks.'
         )
         return "\n".join(lines)
 

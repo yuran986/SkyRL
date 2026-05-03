@@ -241,7 +241,7 @@ observation 会包含完整 frame，训练脚本默认使用 `MAX_INPUT_LENGTH=8
 - `generator.max_input_length`：rollout 中每轮调用模型前的累计上下文上限，包含
   初始 prompt、初始 frame、历史 action、历史 observation/diff。
 - `generator.sampling_params.max_generate_length`：每一轮模型最多生成多少 token。
-  ARC-AGI-3 只需要输出一个 action，默认 `128`。
+  ARC-AGI-3 当前要求输出简短 `<think>` 加一个 `<action>`，默认 `256`。
 - `generator.inference_engine.engine_init_kwargs.max_model_len`：vLLM 单次请求允许的
   `input tokens + generated tokens` 总窗口。通常应满足
   `max_model_len >= generator.max_input_length + max_generate_length`。
@@ -250,7 +250,7 @@ observation 会包含完整 frame，训练脚本默认使用 `MAX_INPUT_LENGTH=8
 
 ```bash
 MAX_INPUT_LENGTH=8192        # 同时传给 trainer.max_prompt_length 和 generator.max_input_length
-MAX_GENERATE_LENGTH=128      # 传给 generator.sampling_params.max_generate_length
+MAX_GENERATE_LENGTH=256      # 传给 generator.sampling_params.max_generate_length
 MAX_MODEL_LEN=32768          # 可选；传给 vLLM max_model_len，不设时使用模型/框架默认
 ```
 
@@ -262,11 +262,11 @@ MAX_MODEL_LEN=32768          # 可选；传给 vLLM max_model_len，不设时使
 `generator.batched=false`、conversation multi-turn、`n_samples_per_prompt=5`、
 `environment.skyrl_gym.max_env_workers=16`、`gpu_memory_utilization=0.5`、默认关闭
 训练前 eval。不同之处是 ARC-AGI-3 的初始 frame 更长，因此默认
-`MAX_INPUT_LENGTH=8192`，而每轮只需要输出一个 action，所以
-`MAX_GENERATE_LENGTH=128`。
+`MAX_INPUT_LENGTH=8192`，而每轮需要输出简短 reasoning 加一个 action，所以
+`MAX_GENERATE_LENGTH=256`。
 
 默认模型使用 `Qwen/Qwen2.5-3B-Instruct`。冷启动阶段建议优先使用 instruct
-模型，因为它更容易遵循 `<action>...</action>` 和 JSON 坐标格式；base 模型更适合
+模型，因为它更容易遵循 `<think>...</think>`、`<action>...</action>` 和 JSON 坐标格式；base 模型更适合
 已有 SFT warm start 或想从更原始策略开始做大规模 RL 的场景。
 
 单卡 smoke run 可用：

@@ -48,6 +48,7 @@ python examples/train_integrations/arc_agi3/prepare_dataset.py \
 ```
 
 The generated parquet files contain `prompt`, `env_class`, and per-episode extras such as `task_id`, `seed`, `operation_mode`, and `environments_dir`.
+Regenerate these parquet files after changing the prompt or action protocol; existing files keep the old prompt text.
 By default, observations include a full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
 
 ## Train
@@ -88,14 +89,19 @@ jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, di
   $HOME/exports/arc_agi3/dumped_rollouts/global_step_1_rollouts.jsonl
 ```
 
-The model should emit exactly one action per turn:
+The model should emit brief reasoning followed by exactly one executable action per turn:
 
 ```text
+<think>Briefly state what changed or what to try next.</think>
 <action>ACTION1</action>
+
+<think>Click the center to test whether the selected region changes.</think>
 <action>{"action":"ACTION6","x":32,"y":32}</action>
 ```
 
-`ACTION6` requires `x` and `y` coordinates in `[0, 63]`.
+`ACTION6` requires `x` and `y` coordinates in `[0, 63]`. The environment executes only the
+last `<action>...</action>` block; keep `<think>` short so rollout context stays within
+`MAX_INPUT_LENGTH`.
 
 ## Debug One Rollout
 
@@ -105,8 +111,8 @@ Run a local rollout without starting SkyRL training:
 PYTHONPATH=$PWD/skyrl-gym:$PWD \
 python examples/train_integrations/arc_agi3/debug_rollout.py \
   --task_id ft09 \
-  --action '<action>ACTION1</action>' \
-  --action '<action>{"action":"ACTION6","x":32,"y":32}</action>'
+  --action '<think>Try a simple action.</think><action>ACTION1</action>' \
+  --action '<think>Try a center click.</think><action>{"action":"ACTION6","x":32,"y":32}</action>'
 ```
 
 The script prints JSON records for `init` and each `step`, including parsed action metadata, reward components, diff stats, observations, and metrics.

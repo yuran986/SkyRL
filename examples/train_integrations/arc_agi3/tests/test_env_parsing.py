@@ -17,6 +17,21 @@ def test_parse_json_click_action():
     assert parsed.y == 40
 
 
+def test_parse_thinking_then_action():
+    parsed = parse_model_action(
+        '<think>The lower-left area changed last turn, so click nearby.</think>'
+        '<action>{"action":"ACTION6","x":8,"y":56}</action>'
+    )
+    assert parsed.name == "ACTION6"
+    assert parsed.x == 8
+    assert parsed.y == 56
+
+
+def test_parse_uses_last_action_block():
+    parsed = parse_model_action("<action>ACTION1</action><think>revise</think><action>ACTION2</action>")
+    assert parsed.name == "ACTION2"
+
+
 def test_parse_text_click_action():
     parsed = parse_model_action("<action>ACTION6 x=3 y=4</action>")
     assert parsed.name == "ACTION6"
@@ -27,4 +42,3 @@ def test_parse_text_click_action():
 def test_click_requires_coordinates():
     with pytest.raises(ValueError, match="requires"):
         parse_model_action("<action>ACTION6</action>")
-

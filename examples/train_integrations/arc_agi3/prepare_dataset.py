@@ -9,8 +9,11 @@ from dotenv import load_dotenv
 
 DEFAULT_PROMPT = (
     "You are playing one ARC-AGI-3 game. Infer the rule from observations and choose one action at a time. "
-    "Return exactly one action in <action>...</action>. Simple actions look like <action>ACTION1</action>. "
-    'For coordinate clicks use JSON, for example <action>{"action":"ACTION6","x":32,"y":32}</action>.'
+    "Respond with brief reasoning in <think>...</think>, then exactly one executable action in "
+    "<action>...</action>. Keep <think> concise. The environment executes only the <action> tag. "
+    "Simple actions look like <action>ACTION1</action>. "
+    'For coordinate clicks use JSON inside <action>, for example <action>{"action":"ACTION6","x":32,"y":32}</action>. '
+    "Never output bare JSON outside <action>."
 )
 
 

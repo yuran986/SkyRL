@@ -114,15 +114,17 @@ env = arc.make(task_id, seed=seed, renderer=noop_renderer)
 
 ### 5.2 动作协议
 
-模型输出强制为单步动作：
+模型输出使用简短 thinking 加单步动作，环境只执行最后一个 `<action>` 块：
 
 ```text
+<think>Briefly explain what changed or what to try next.</think>
 <action>{"action":"ACTION6","x":32,"y":32}</action>
 ```
 
 也支持简单动作：
 
 ```text
+<think>Try the first available simple action.</think>
 <action>ACTION1</action>
 ```
 
@@ -243,8 +245,8 @@ prompt 建议短而稳定：
 
 ```text
 You are playing one ARC-AGI-3 game. Use the observations to infer the rule.
-Return exactly one action in <action>...</action>.
-For ACTION6, use JSON: {"action":"ACTION6","x":32,"y":32}.
+Respond with brief reasoning in <think>...</think>, then exactly one executable action in <action>...</action>.
+For ACTION6, use JSON inside <action>: {"action":"ACTION6","x":32,"y":32}.
 ```
 
 不要在 prompt 里泄露特定 game 的解法。
