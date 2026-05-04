@@ -105,8 +105,9 @@ per-turn action, observation, reward, reward components, diff stats, and environ
 ## Full Training Run
 
 After the smoke run reaches multiple global steps, use this larger 4-GPU split run. It keeps
-thinking enabled and raises the conversation budget so 10-turn trajectories are less likely
-to stop early with `stop_reason=length`.
+thinking enabled and raises the conversation budget enough for 10-turn trajectories. The
+previous 8192-token setting was too tight: recent rollouts stopped around 7-8 turns with
+`stop_reason=length`.
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
@@ -118,17 +119,17 @@ INFERENCE_NUM_ENGINES=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=10 \
-MAX_INPUT_LENGTH=8192 \
-MAX_MODEL_LEN=9216 \
+MAX_INPUT_LENGTH=16384 \
+MAX_MODEL_LEN=18432 \
 MAX_GENERATE_LENGTH=192 \
 N_SAMPLES_PER_PROMPT=4 \
 TRAIN_BATCH_SIZE=4 \
 POLICY_MINI_BATCH_SIZE=2 \
-CKPT_INTERVAL=10 \
+CKPT_INTERVAL=20 \
 EVAL_INTERVAL=20 \
 RUN_NAME=arc_agi3_formal \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
-  trainer.epochs=3 \
+  trainer.epochs=50 \
   trainer.eval_before_train=false \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.micro_forward_batch_size_per_gpu=1 \
@@ -136,9 +137,26 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
 
-If `batch_padded_seq_len` approaches 8192 or rollouts still end at 5-6 turns with
-`stop_reason=length`, raise `MAX_INPUT_LENGTH=10240` and `MAX_MODEL_LEN=11264` before
-changing reward or model settings.
+If `batch_padded_seq_len` approaches 16384 or rollouts still end before 10 turns with
+`stop_reason=length`, try the 32k maximum-context profile below before changing reward
+or model settings.
+
+For a maximum-context experiment with Qwen2.5-3B-Instruct, use the model's 32k context
+window, but reduce the batch first because FSDP training cost also grows with sequence
+length:
+
+```bash
+MAX_INPUT_LENGTH=28672 \
+MAX_MODEL_LEN=32768 \
+MAX_GENERATE_LENGTH=256 \
+TRAIN_BATCH_SIZE=2 \
+POLICY_MINI_BATCH_SIZE=1 \
+N_SAMPLES_PER_PROMPT=2 \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh ...
+```
+
+Do not make the 32k setting the default unless the 16k run is still length-limited; it is
+much slower and more likely to run out of memory on a 4-GPU 2+2 split.
 
 Useful rollout checks:
 

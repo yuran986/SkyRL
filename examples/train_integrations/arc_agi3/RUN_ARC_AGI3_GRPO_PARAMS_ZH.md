@@ -47,17 +47,17 @@ INFERENCE_NUM_ENGINES=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=10 \
-MAX_INPUT_LENGTH=8192 \
-MAX_MODEL_LEN=9216 \
+MAX_INPUT_LENGTH=16384 \
+MAX_MODEL_LEN=18432 \
 MAX_GENERATE_LENGTH=192 \
 N_SAMPLES_PER_PROMPT=4 \
 TRAIN_BATCH_SIZE=4 \
 POLICY_MINI_BATCH_SIZE=2 \
-CKPT_INTERVAL=10 \
+CKPT_INTERVAL=20 \
 EVAL_INTERVAL=20 \
 RUN_NAME=arc_agi3_formal \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
-  trainer.epochs=3 \
+  trainer.epochs=50 \
   trainer.eval_before_train=false \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.micro_forward_batch_size_per_gpu=1 \
@@ -65,7 +65,21 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
 
-如果 rollout 仍然只有 5-6 turn 且 `stop_reason=length`，先把 `MAX_INPUT_LENGTH=10240`、`MAX_MODEL_LEN=11264`，再考虑改 prompt 或 reward。`MAX_TURNS=10` 是交互轮数上限，不保证一定跑满；真正提前截断的常见原因是 conversation token 数达到 `generator.max_input_length`。
+如果 rollout 仍然不到 10 turn 且 `stop_reason=length`，先尝试下面的 32k 最大上下文实验档，再考虑改 prompt 或 reward。`MAX_TURNS=10` 是交互轮数上限，不保证一定跑满；真正提前截断的常见原因是 conversation token 数达到 `generator.max_input_length`。
+
+如果要做“最大上下文”实验，Qwen2.5-3B-Instruct 可以按 32k 上下文来配，但不要直接沿用正式训练 batch，因为 FSDP 训练的序列长度也会一起变长，显存和速度压力都会明显上升：
+
+```bash
+MAX_INPUT_LENGTH=28672 \
+MAX_MODEL_LEN=32768 \
+MAX_GENERATE_LENGTH=256 \
+TRAIN_BATCH_SIZE=2 \
+POLICY_MINI_BATCH_SIZE=1 \
+N_SAMPLES_PER_PROMPT=2 \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh ...
+```
+
+除非 16k 正式配置仍然被 `stop_reason=length` 卡住，否则不建议把 32k 作为默认正式配置。
 
 ## Shell 环境变量
 
@@ -106,7 +120,7 @@ GRPO 每个 prompt 采几条 rollout。越大，组内相对优势更稳定，�
 policy update 的 mini-batch 大小。越大吞吐更好但显存更高。当前建议 2，稳定后试 4。不要超过 `TRAIN_BATCH_SIZE`。
 
 `MAX_INPUT_LENGTH`  
-同时传给 `trainer.max_prompt_length` 和 `generator.max_input_length`。对 ARC-AGI-3 来说，真正关键的是 `generator.max_input_length`：它限制多轮 conversation 的累计上下文，包括初始 prompt、初始 frame、历史 `<think>/<action>` 和 observation/diff。`MAX_TURNS` 只是轮数上限；如果 rollout 的 `stop_reason=length`，会在达到 10 轮前提前停止。正式训练建议 8192 起步。
+同时传给 `trainer.max_prompt_length` 和 `generator.max_input_length`。对 ARC-AGI-3 来说，真正关键的是 `generator.max_input_length`：它限制多轮 conversation 的累计上下文，包括初始 prompt、初始 frame、历史 `<think>/<action>` 和 observation/diff。`MAX_TURNS` 只是轮数上限；如果 rollout 的 `stop_reason=length`，会在达到 10 轮前提前停止。当前正式训练建议 16384 起步；如果仍然卡长度，再切到 32k 最大上下文实验档。
 
 `MAX_GENERATE_LENGTH`  
 每轮 action 生成上限，传给 train/eval sampling params。当前输出是 `<think>` 加一个 `<action>`；正式训练可以用 192，给模型保留一定 reasoning 空间。过大则会让单轮输出变长并更快触发 `stop_reason=length`。
