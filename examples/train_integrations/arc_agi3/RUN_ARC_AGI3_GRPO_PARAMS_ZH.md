@@ -33,6 +33,40 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 
 这组参数偏保守，目标是先确认 rollout、policy update、checkpoint、结构化日志都稳定。稳定后按顺序放大：`N_SAMPLES_PER_PROMPT=4`，`MAX_INPUT_LENGTH=8192`，`TRAIN_BATCH_SIZE=4`，`POLICY_MINI_BATCH_SIZE=2`。暂时不要先把 `trainer.micro_train_batch_size_per_gpu` 调回 4。
 
+## 正式训练配置
+
+smoke run 连续多个 global step 正常后，可以用下面这组参数开始正式训练。它仍然是 4 卡总量的 2+2 分离模式，但把上下文、采样数和 batch 拉高，并降低 checkpoint 频率，避免每一步都写 35GB 级别 checkpoint：
+
+```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+DATA_DIR=$HOME/data/arc_agi3 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_formal \
+COLOCATE_ALL=false \
+NUM_GPUS=2 \
+INFERENCE_NUM_ENGINES=2 \
+LOGGER=console \
+MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
+MAX_TURNS=10 \
+MAX_INPUT_LENGTH=8192 \
+MAX_MODEL_LEN=9216 \
+MAX_GENERATE_LENGTH=192 \
+N_SAMPLES_PER_PROMPT=4 \
+TRAIN_BATCH_SIZE=4 \
+POLICY_MINI_BATCH_SIZE=2 \
+CKPT_INTERVAL=10 \
+EVAL_INTERVAL=20 \
+RUN_NAME=arc_agi3_formal \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
+  trainer.epochs=3 \
+  trainer.eval_before_train=false \
+  trainer.micro_train_batch_size_per_gpu=1 \
+  trainer.micro_forward_batch_size_per_gpu=1 \
+  trainer.max_ckpts_to_keep=3 \
+  trainer.log_path=$HOME/skyrl_logs/arc_agi3
+```
+
+如果 rollout 仍然只有 5-6 turn 且 `stop_reason=length`，先把 `MAX_INPUT_LENGTH=10240`、`MAX_MODEL_LEN=11264`，再考虑改 prompt 或 reward。`MAX_TURNS=10` 是交互轮数上限，不保证一定跑满；真正提前截断的常见原因是 conversation token 数达到 `generator.max_input_length`。
+
 ## Shell 环境变量
 
 `DATA_DIR`  
@@ -72,10 +106,10 @@ GRPO 每个 prompt 采几条 rollout。越大，组内相对优势更稳定，�
 policy update 的 mini-batch 大小。越大吞吐更好但显存更高。当前建议 2，稳定后试 4。不要超过 `TRAIN_BATCH_SIZE`。
 
 `MAX_INPUT_LENGTH`  
-同时传给 `trainer.max_prompt_length` 和 `generator.max_input_length`。对 ARC-AGI-3 来说，真正关键的是 `generator.max_input_length`：它限制多轮 conversation 的累计上下文，包括初始 prompt、初始 frame、历史 `<think>/<action>` 和 observation/diff。当前建议 6144；稳定后恢复 8192。
+同时传给 `trainer.max_prompt_length` 和 `generator.max_input_length`。对 ARC-AGI-3 来说，真正关键的是 `generator.max_input_length`：它限制多轮 conversation 的累计上下文，包括初始 prompt、初始 frame、历史 `<think>/<action>` 和 observation/diff。`MAX_TURNS` 只是轮数上限；如果 rollout 的 `stop_reason=length`，会在达到 10 轮前提前停止。正式训练建议 8192 起步。
 
 `MAX_GENERATE_LENGTH`  
-每轮 action 生成上限，传给 train/eval sampling params。当前输出是简短 `<think>` 加一个 `<action>`，128 通常够用；如果模型 reasoning 被截断，可调到 192 或 256，但会增加上下文增长速度。
+每轮 action 生成上限，传给 train/eval sampling params。当前输出是 `<think>` 加一个 `<action>`；正式训练可以用 192，给模型保留一定 reasoning 空间。过大则会让单轮输出变长并更快触发 `stop_reason=length`。
 
 `GPU_MEMORY_UTILIZATION`  
 vLLM KV cache 使用显存比例。默认 0.5。colocated 训练时 vLLM 和 FSDP 共用 GPU，数值太高会挤训练显存；太低会限制生成并发。当前 0.45-0.5 都合理。
@@ -227,7 +261,7 @@ dump 和 eval artifact 输出根目录。脚本默认每次唯一目录，避免
 优先看这些日志信号：
 
 - `batch_padded_seq_len`：接近或超过 `MAX_INPUT_LENGTH + MAX_GENERATE_LENGTH` 时，说明上下文很满。
-- `avg_response_length`：过大说明 `<think>` 太长或 stop 没正常生效。
+- `avg_response_length`：过大说明 `<think>` 太长或 stop 没正常生效；如果 rollout 只有 5-6 轮且 `stop_reason=length`，优先提高 `MAX_INPUT_LENGTH`。
 - `environment/invalid_actions`：高说明动作格式、可用动作或坐标范围没学好。
 - `reward/avg_raw_reward` 和 `reward/mean_positive_reward`：长期全 0 或负数时，先抽查 rollout，不要只调训练超参。
 - `policy_kl`：太高说明策略偏离过快；长期 0 附近且 reward 不动，可能学习率/有效 reward 太弱。

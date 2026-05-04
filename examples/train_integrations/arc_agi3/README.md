@@ -55,7 +55,7 @@ The generated parquet files contain `prompt`, `env_class`, and per-episode extra
 Regenerate these parquet files after changing the prompt or action protocol; existing files keep the old prompt text.
 By default, observations include a color legend and full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
 
-## Train
+## Train Smoke Run
 
 Recommended first run on one 4-GPU node, with 2 GPUs for FSDP training and 2 GPUs for vLLM:
 
@@ -101,6 +101,44 @@ By default, `run_arc_agi3_grpo.sh` creates a unique export directory for each ru
 `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
 Each JSONL row contains one trajectory with the initial prompt/messages seen by the model,
 per-turn action, observation, reward, reward components, diff stats, and environment state.
+
+## Full Training Run
+
+After the smoke run reaches multiple global steps, use this larger 4-GPU split run. It keeps
+thinking enabled and raises the conversation budget so 10-turn trajectories are less likely
+to stop early with `stop_reason=length`.
+
+```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+DATA_DIR=$HOME/data/arc_agi3 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_formal \
+COLOCATE_ALL=false \
+NUM_GPUS=2 \
+INFERENCE_NUM_ENGINES=2 \
+LOGGER=console \
+MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
+MAX_TURNS=10 \
+MAX_INPUT_LENGTH=8192 \
+MAX_MODEL_LEN=9216 \
+MAX_GENERATE_LENGTH=192 \
+N_SAMPLES_PER_PROMPT=4 \
+TRAIN_BATCH_SIZE=4 \
+POLICY_MINI_BATCH_SIZE=2 \
+CKPT_INTERVAL=10 \
+EVAL_INTERVAL=20 \
+RUN_NAME=arc_agi3_formal \
+bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
+  trainer.epochs=3 \
+  trainer.eval_before_train=false \
+  trainer.micro_train_batch_size_per_gpu=1 \
+  trainer.micro_forward_batch_size_per_gpu=1 \
+  trainer.max_ckpts_to_keep=3 \
+  trainer.log_path=$HOME/skyrl_logs/arc_agi3
+```
+
+If `batch_padded_seq_len` approaches 8192 or rollouts still end at 5-6 turns with
+`stop_reason=length`, raise `MAX_INPUT_LENGTH=10240` and `MAX_MODEL_LEN=11264` before
+changing reward or model settings.
 
 Useful rollout checks:
 
@@ -162,7 +200,7 @@ The model should emit brief reasoning followed by exactly one executable action 
 ```
 
 `ACTION6` requires `x` and `y` coordinates in `[0, 63]`. The environment executes only the
-last `<action>...</action>` block; keep `<think>` short so rollout context stays within
+last `<action>...</action>` block; keep `<think>` concise so rollout context stays within
 `MAX_INPUT_LENGTH`.
 
 ## Debug One Rollout
