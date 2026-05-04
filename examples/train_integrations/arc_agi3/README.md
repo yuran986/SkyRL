@@ -26,6 +26,9 @@ uv sync --extra dev
 uv pip install arc-agi python-dotenv
 ```
 
+The launcher uses the repository-local `.venv/bin/python` by default. Override `PYTHON_BIN`
+only if you intentionally want to run with a different environment.
+
 Create or edit `.env`:
 
 ```bash
@@ -58,12 +61,13 @@ Recommended first run on 4x A6000 / 4x 6000 Ada / 4x A100:
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
+SKYRL_FORCE_BROADCAST_WEIGHT_SYNC=1 \
 DATA_DIR=$HOME/data/arc_agi3 \
 CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
 NUM_GPUS=4 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
-MAX_TURNS=8 \
+MAX_TURNS=10 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
 N_SAMPLES_PER_PROMPT=4 \

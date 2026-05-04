@@ -4,6 +4,9 @@ set -x
 # Override defaults with environment variables, e.g.:
 #   NUM_GPUS=1 LOGGER=console bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 if [ -f .env ]; then
   set -a
   source .env
@@ -16,7 +19,7 @@ fi
 : "${LOGGER:=wandb}"
 : "${MODEL_PATH:="Qwen/Qwen2.5-3B-Instruct"}"
 : "${INFERENCE_BACKEND:=vllm}"
-: "${MAX_TURNS:=8}"
+: "${MAX_TURNS:=10}"
 : "${N_SAMPLES_PER_PROMPT:=5}"
 : "${TRAIN_BATCH_SIZE:=8}"
 : "${POLICY_MINI_BATCH_SIZE:=8}"
@@ -32,15 +35,25 @@ fi
 : "${EXPORT_PATH:="$EXPORT_ROOT/$RUN_ID"}"
 : "${MAX_MODEL_LEN:=}"
 : "${MAX_ENV_WORKERS:=16}"
+: "${PYTHON_BIN:="$REPO_ROOT/.venv/bin/python"}"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  echo "Python executable not found: $PYTHON_BIN"
+  echo "Create the local environment first: uv venv --python 3.12 .venv && source .venv/bin/activate && uv sync --extra dev --extra fsdp && uv pip install arc-agi python-dotenv"
+  exit 1
+fi
+
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 echo "ARC-AGI-3 export path: $EXPORT_PATH"
+echo "ARC-AGI-3 python: $PYTHON_BIN"
 
 MODEL_LEN_ARGS=""
 if [ -n "$MAX_MODEL_LEN" ]; then
   MODEL_LEN_ARGS="generator.inference_engine.engine_init_kwargs.max_model_len=$MAX_MODEL_LEN"
 fi
 
-uv run --isolated --extra fsdp --with arc-agi --with python-dotenv -m examples.train_integrations.arc_agi3.entrypoints.main_arc_agi3 \
+"$PYTHON_BIN" -m examples.train_integrations.arc_agi3.entrypoints.main_arc_agi3 \
   data.train_data="['$DATA_DIR/train.parquet']" \
   data.val_data="['$DATA_DIR/validation.parquet']" \
   trainer.algorithm.advantage_estimator="grpo" \

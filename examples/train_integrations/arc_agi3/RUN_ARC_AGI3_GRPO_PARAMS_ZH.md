@@ -8,12 +8,13 @@
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
+SKYRL_FORCE_BROADCAST_WEIGHT_SYNC=1 \
 DATA_DIR=$HOME/data/arc_agi3 \
 CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
 NUM_GPUS=4 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
-MAX_TURNS=8 \
+MAX_TURNS=10 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
 N_SAMPLES_PER_PROMPT=4 \
@@ -89,6 +90,12 @@ vLLM KV cache 使用显存比例。默认 0.5。colocated 训练时 vLLM 和 FSD
 
 `MAX_ENV_WORKERS`  
 skyrl-gym 环境并发 worker 数。默认 16。环境本身很轻时可以增加；如果日志太乱或环境初始化压力大，可以降到 8。
+
+`PYTHON_BIN`  
+训练脚本使用的 Python。默认是仓库根目录的 `.venv/bin/python`，因此不会每次通过 `uv run --isolated` 重建隔离环境。只有要切到其他已配置好的虚拟环境时才覆盖。
+
+`SKYRL_FORCE_BROADCAST_WEIGHT_SYNC`  
+设置为 `1` 时，colocated 训练仍保留，但权重同步绕开 CUDA IPC，改走 broadcast/NCCL 路径。遇到 `pidfd_getfd: Operation not permitted` 时建议开启。同步可能稍慢，但更兼容受限节点。
 
 ## 算法参数
 

@@ -1,5 +1,6 @@
 """Weight synchronization abstractions for distributed RL training."""
 
+import os
 from typing import Type
 
 from .base import LoraLoadRequest, WeightChunk, WeightUpdateRequest
@@ -51,6 +52,14 @@ def get_transfer_strategy_cls(weight_sync_backend: str, colocate_all: bool) -> T
 
 def get_transfer_strategy(weight_sync_backend: str, colocate_all: bool) -> str:
     """Get the appropriate transfer strategy string based on config."""
+    force_broadcast = os.getenv("SKYRL_FORCE_BROADCAST_WEIGHT_SYNC", "").lower() in ("1", "true", "yes")
+    force_broadcast = force_broadcast or os.getenv("SKYRL_FORCE_NCCL_WEIGHT_SYNC", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if force_broadcast:
+        return "nccl"
     if weight_sync_backend == "nccl" and colocate_all:
         return "ipc"
     return "nccl"

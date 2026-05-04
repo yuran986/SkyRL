@@ -64,11 +64,15 @@ python -c "import arc_agi; from arcengine import GameAction; print(list(GameActi
 
 期望能看到 `RESET`、`ACTION1` 到 `ACTION7`。
 
-如果后面希望训练脚本自带依赖，而不是依赖当前 venv，可以在脚本里使用：
+训练脚本默认复用仓库根目录的 `.venv/bin/python`，不会再通过 `uv run --isolated` 每次创建隔离环境。首次配置或依赖变化时，把依赖安装进当前 `.venv`：
 
 ```bash
-uv run --isolated --extra fsdp --with arc-agi --with python-dotenv -m ...
+source .venv/bin/activate
+uv sync --extra dev --extra fsdp
+uv pip install arc-agi python-dotenv
 ```
+
+如果需要使用其他 Python，可在启动训练时设置 `PYTHON_BIN=/path/to/python`。
 
 ## 4. 配置 `.env`
 
