@@ -36,6 +36,9 @@ fi
 : "${MAX_MODEL_LEN:=}"
 : "${MAX_ENV_WORKERS:=16}"
 : "${PYTHON_BIN:="$REPO_ROOT/.venv/bin/python"}"
+: "${COLOCATE_ALL:=true}"
+: "${INFERENCE_NUM_ENGINES:="$NUM_GPUS"}"
+: "${SKYRL_FORCE_BROADCAST_WEIGHT_SYNC:=}"
 
 if [ ! -x "$PYTHON_BIN" ]; then
   echo "Python executable not found: $PYTHON_BIN"
@@ -44,9 +47,18 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+if [ -n "$SKYRL_FORCE_BROADCAST_WEIGHT_SYNC" ]; then
+  export SKYRL_FORCE_BROADCAST_WEIGHT_SYNC
+fi
 
 echo "ARC-AGI-3 export path: $EXPORT_PATH"
 echo "ARC-AGI-3 python: $PYTHON_BIN"
+echo "ARC-AGI-3 colocate_all: $COLOCATE_ALL"
+echo "ARC-AGI-3 train GPUs: $NUM_GPUS"
+echo "ARC-AGI-3 inference engines: $INFERENCE_NUM_ENGINES"
+if [ -n "$SKYRL_FORCE_BROADCAST_WEIGHT_SYNC" ]; then
+  echo "ARC-AGI-3 force broadcast weight sync: $SKYRL_FORCE_BROADCAST_WEIGHT_SYNC"
+fi
 
 MODEL_LEN_ARGS=""
 if [ -n "$MAX_MODEL_LEN" ]; then
@@ -61,14 +73,14 @@ fi
   trainer.algorithm.kl_loss_coef=0.001 \
   trainer.algorithm.grpo_norm_by_std=true \
   trainer.policy.model.path="$MODEL_PATH" \
-  trainer.placement.colocate_all=true \
+  trainer.placement.colocate_all=$COLOCATE_ALL \
   trainer.strategy=fsdp2 \
   trainer.policy.fsdp_config.cpu_offload=false \
   trainer.ref.fsdp_config.cpu_offload=true \
   trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
   trainer.placement.critic_num_gpus_per_node=$NUM_GPUS \
   trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
-  generator.inference_engine.num_engines=$NUM_GPUS \
+  generator.inference_engine.num_engines=$INFERENCE_NUM_ENGINES \
   generator.inference_engine.tensor_parallel_size=1 \
   generator.inference_engine.backend=$INFERENCE_BACKEND \
   generator.inference_engine.run_engines_locally=true \

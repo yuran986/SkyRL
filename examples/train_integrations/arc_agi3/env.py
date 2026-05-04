@@ -354,7 +354,7 @@ class ArcAgi3Env(BaseTextEnv):
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "arc_agi/arcengine is not installed. Install it with `uv pip install arc-agi` "
-                "or run via `uv run --with arc-agi ...`."
+                "inside the repository .venv, then rerun the training script."
             ) from exc
 
         self.OperationMode = OperationMode

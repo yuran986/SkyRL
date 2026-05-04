@@ -57,22 +57,23 @@ By default, observations include a color legend and full frame at initialization
 
 ## Train
 
-Recommended first run on 4x A6000 / 4x 6000 Ada / 4x A100:
+Recommended first run on one 4-GPU node, with 2 GPUs for FSDP training and 2 GPUs for vLLM:
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-SKYRL_FORCE_BROADCAST_WEIGHT_SYNC=1 \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
-NUM_GPUS=4 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu_split \
+COLOCATE_ALL=false \
+NUM_GPUS=2 \
+INFERENCE_NUM_ENGINES=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=10 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
-N_SAMPLES_PER_PROMPT=4 \
-TRAIN_BATCH_SIZE=4 \
-POLICY_MINI_BATCH_SIZE=2 \
+N_SAMPLES_PER_PROMPT=2 \
+TRAIN_BATCH_SIZE=2 \
+POLICY_MINI_BATCH_SIZE=1 \
 CKPT_INTERVAL=1 \
 EVAL_INTERVAL=-1 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
@@ -87,6 +88,9 @@ This is intentionally conservative. After it completes multiple global steps and
 checkpoints, increase one knob at a time: `MAX_INPUT_LENGTH=8192`, then
 `N_SAMPLES_PER_PROMPT=5`, then `TRAIN_BATCH_SIZE=8`, then `POLICY_MINI_BATCH_SIZE=4`.
 Keep `trainer.micro_train_batch_size_per_gpu=1` until memory is clearly stable.
+Use `COLOCATE_ALL=true` only on nodes where colocated CUDA IPC weight sync is known to work.
+On nodes that reject CUDA IPC with `pidfd_getfd: Operation not permitted`, keep
+`COLOCATE_ALL=false` and split the available GPUs between training and inference.
 
 Infrastructure logs are written under `trainer.log_path`; with the command above, check
 `$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,

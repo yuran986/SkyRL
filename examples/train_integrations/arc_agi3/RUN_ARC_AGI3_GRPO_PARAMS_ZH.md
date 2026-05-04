@@ -4,22 +4,23 @@
 
 ## 推荐起步配置
 
-优先用 4 张 48GB 级别 GPU，例如 A6000、6000 Ada 或 A100：
+当前更稳的起步方式是在 4 张 48GB 级别 GPU 上分离训练和推理：训练侧 2 张，vLLM 推理侧 2 张。
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-SKYRL_FORCE_BROADCAST_WEIGHT_SYNC=1 \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
-NUM_GPUS=4 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu_split \
+COLOCATE_ALL=false \
+NUM_GPUS=2 \
+INFERENCE_NUM_ENGINES=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
 MAX_TURNS=10 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
-N_SAMPLES_PER_PROMPT=4 \
-TRAIN_BATCH_SIZE=4 \
-POLICY_MINI_BATCH_SIZE=2 \
+N_SAMPLES_PER_PROMPT=2 \
+TRAIN_BATCH_SIZE=2 \
+POLICY_MINI_BATCH_SIZE=1 \
 CKPT_INTERVAL=1 \
 EVAL_INTERVAL=-1 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
@@ -30,7 +31,7 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 ```
 
-这组参数偏保守，目标是先确认 rollout、policy update、checkpoint、结构化日志都稳定。稳定后按顺序放大：`MAX_INPUT_LENGTH=8192`，`N_SAMPLES_PER_PROMPT=5`，`TRAIN_BATCH_SIZE=8`，`POLICY_MINI_BATCH_SIZE=4`。暂时不要先把 `trainer.micro_train_batch_size_per_gpu` 调回 4。
+这组参数偏保守，目标是先确认 rollout、policy update、checkpoint、结构化日志都稳定。稳定后按顺序放大：`N_SAMPLES_PER_PROMPT=4`，`MAX_INPUT_LENGTH=8192`，`TRAIN_BATCH_SIZE=4`，`POLICY_MINI_BATCH_SIZE=2`。暂时不要先把 `trainer.micro_train_batch_size_per_gpu` 调回 4。
 
 ## Shell 环境变量
 
@@ -38,10 +39,16 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 训练/验证 parquet 所在目录。脚本读取 `$DATA_DIR/train.parquet` 和 `$DATA_DIR/validation.parquet`。默认 `$HOME/data/arc_agi3`。
 
 `CKPT_PATH`  
-SkyRL checkpoint 输出目录。建议放到 `/usr/project/xtmp/...`，不要放 home quota。4 卡实验建议类似 `/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu`。
+SkyRL checkpoint 输出目录。建议放到 `/usr/project/xtmp/...`，不要放 home quota。4 卡分离实验建议类似 `/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu_split`。
 
 `NUM_GPUS`  
-同一节点使用的 GPU 数。脚本会同时设置 policy/ref/critic 的 GPU 数和 vLLM engine 数。2 卡可以 debug，4 卡更适合当前 3B + 多轮 rollout；8 卡暂时只有在扩大模型、batch 或并发时才需要。
+训练侧使用的 GPU 数，传给 policy/ref/critic placement。`COLOCATE_ALL=true` 时通常也让 vLLM 使用同样数量的 GPU；`COLOCATE_ALL=false` 时，它只表示训练侧 GPU 数。
+
+`INFERENCE_NUM_ENGINES`  
+vLLM engine 数，默认等于 `NUM_GPUS`。`COLOCATE_ALL=false` 时，这些 engine 会申请独立 GPU。例如 `NUM_GPUS=2 INFERENCE_NUM_ENGINES=2 COLOCATE_ALL=false` 通常需要 4 张 GPU。
+
+`COLOCATE_ALL`  
+是否让训练和 vLLM 共用同一批 GPU。`true` 省 GPU，但依赖 CUDA IPC 权重同步；如果节点报 `pidfd_getfd: Operation not permitted`，说明该节点不适合 colocated CUDA IPC。此时改用 `false`，让训练和推理分卡运行。
 
 `LOGGER`  
 训练指标 tracker，传给 `trainer.logger`。`console` 适合排错；`tensorboard` 适合本地曲线；`wandb`、`swanlab`、`mlflow` 适合实验管理。它不控制 infra 日志位置，infra 日志由 `trainer.log_path` 控制。
@@ -95,7 +102,7 @@ skyrl-gym 环境并发 worker 数。默认 16。环境本身很轻时可以增�
 训练脚本使用的 Python。默认是仓库根目录的 `.venv/bin/python`，因此不会每次通过 `uv run --isolated` 重建隔离环境。只有要切到其他已配置好的虚拟环境时才覆盖。
 
 `SKYRL_FORCE_BROADCAST_WEIGHT_SYNC`  
-设置为 `1` 时，colocated 训练仍保留，但权重同步绕开 CUDA IPC，改走 broadcast/NCCL 路径。遇到 `pidfd_getfd: Operation not permitted` 时建议开启。同步可能稍慢，但更兼容受限节点。
+设置为 `1` 时，强制绕开 CUDA IPC，改走 broadcast/NCCL 权重同步。它保留为排错开关，不建议作为 4 卡 colocated 默认方案；在当前节点上，colocated + broadcast/NCCL 也可能触发 vLLM 的 `NCCL error: invalid usage`。更稳的修复是 `COLOCATE_ALL=false` 并给 vLLM 单独 GPU。
 
 ## 算法参数
 
@@ -145,8 +152,8 @@ forward/logprob 阶段每卡 micro batch。也影响显存，但通常比 backwa
 
 ## 生成与 vLLM 参数
 
-`generator.inference_engine.num_engines=$NUM_GPUS`  
-每张 GPU 起一个 vLLM engine。日志里应看到多个 `EngineCore` 和 router worker。
+`generator.inference_engine.num_engines=$INFERENCE_NUM_ENGINES`  
+vLLM engine 数。`COLOCATE_ALL=false` 时它会申请独立 GPU，日志里应看到多个 `EngineCore` 和 router worker。
 
 `generator.inference_engine.tensor_parallel_size=1`  
 每个 vLLM engine 不做 TP。当前 3B 模型单卡可放下，TP=1 简单稳定。

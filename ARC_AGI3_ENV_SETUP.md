@@ -206,8 +206,9 @@ examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md
 本文件保留完整环境配置、参数解释和排错说明。真正开始训练时，优先从 integration
 README 的 `Train` 小节复制命令；需要逐项判断参数是否合理时，看同目录下的中文参数说明。
 
-推荐先用 4 卡保守配置跑通链路。这个配置目标是先稳定完成多个 global step、
-写出 checkpoint 和 rollout dump，不追求一开始就把 context 或 batch 拉满：
+推荐先用 4 卡分离配置跑通链路：训练侧 2 卡、vLLM 推理侧 2 卡。这个配置目标是先稳定完成多个 global step、
+写出 checkpoint 和 rollout dump，不追求一开始就把 context 或 batch 拉满。当前节点如果报
+`pidfd_getfd: Operation not permitted`，不要用 4 卡 colocated 模式硬跑：
 
 ```bash
 set -a
@@ -215,16 +216,18 @@ source .env
 set +a
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu \
-NUM_GPUS=4 \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_4gpu_split \
+COLOCATE_ALL=false \
+NUM_GPUS=2 \
+INFERENCE_NUM_ENGINES=2 \
 LOGGER=console \
 MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
-MAX_TURNS=8 \
+MAX_TURNS=10 \
 MAX_INPUT_LENGTH=6144 \
 MAX_GENERATE_LENGTH=128 \
-N_SAMPLES_PER_PROMPT=4 \
-TRAIN_BATCH_SIZE=4 \
-POLICY_MINI_BATCH_SIZE=2 \
+N_SAMPLES_PER_PROMPT=2 \
+TRAIN_BATCH_SIZE=2 \
+POLICY_MINI_BATCH_SIZE=1 \
 CKPT_INTERVAL=1 \
 EVAL_INTERVAL=-1 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \

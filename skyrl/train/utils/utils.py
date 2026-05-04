@@ -704,6 +704,11 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         logger.info(f"Exporting `SKYRL_RAY_PG_TIMEOUT_IN_S` to ray runtime env: {pg_timeout}")
         env_vars["SKYRL_RAY_PG_TIMEOUT_IN_S"] = pg_timeout
 
+    for var_name in ["SKYRL_FORCE_BROADCAST_WEIGHT_SYNC", "SKYRL_FORCE_NCCL_WEIGHT_SYNC"]:
+        if value := os.environ.get(var_name):
+            logger.info(f"Exporting `{var_name}` to ray runtime env: {value}")
+            env_vars[var_name] = value
+
     return env_vars
 
 
