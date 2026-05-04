@@ -146,7 +146,7 @@ generator.eval_sampling_params.stop='["</action>"]'
 
 当前 integration 使用可配置的 frame observation 策略，默认是 `initial_full_then_diff`：
 
-- 初始 observation 给完整当前 frame，用 `hex_rows_0_to_f` 表示。
+- 初始 observation 给颜色表和完整当前 frame，用 `hex_rows_0_to_f` 表示。
 - 每轮 observation 给 state、score、levels_completed、action space、diff summary。
 - 如果相邻帧发生变化，给 diff bbox 附近的 changed patch。
 - 每隔 `full_frame_interval` 轮刷新一次完整当前 frame，默认 8。

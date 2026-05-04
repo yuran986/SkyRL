@@ -33,6 +33,14 @@ FRAME_COLOR_NAMES = {
 }
 
 
+def _format_color_legend() -> str:
+    parts = []
+    for value, name in sorted(FRAME_COLOR_NAMES.items()):
+        normalized_name = name.replace(" ", "_").replace("-", "_")
+        parts.append(f"{format(value, 'x')}={normalized_name}")
+    return "color_legend: " + " ".join(parts)
+
+
 def noop_renderer(*args: Any, **kwargs: Any) -> None:
     return None
 
@@ -521,8 +529,10 @@ class ArcAgi3Env(BaseTextEnv):
             f"score={score}",
             f"levels_completed={levels_completed}/{self.levels_to_complete}",
             f"available_actions={action_space}",
-            diff,
         ]
+        if initial and self.frame_observation_mode != "none":
+            lines.append(_format_color_legend())
+        lines.append(diff)
         lines.extend(frame_lines)
         if action is not None:
             lines.append(f"last_model_output={action.strip()[:500]}")

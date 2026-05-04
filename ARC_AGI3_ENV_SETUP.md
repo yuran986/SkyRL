@@ -132,7 +132,7 @@ python -c "import os, arc_agi; from arc_agi import OperationMode; from arcengine
 - 找不到 `ft09`：`environments_dir` 路径不对，或 game 文件结构不符合 toolkit 预期。
 - `ACTION6 requires x/y`：坐标动作必须带 `data={"x": int, "y": int}`。
 
-当前默认 observation 策略是 `initial_full_then_diff`：初始给完整 frame 的 hex rows；每轮给 diff summary 和 changed patch；每 8 轮刷新一次完整当前 frame。
+当前默认 observation 策略是 `initial_full_then_diff`：初始给颜色表和完整 frame 的 hex rows；每轮给 diff summary 和 changed patch；每 8 轮刷新一次完整当前 frame。
 
 ## 6. 准备 SkyRL integration 数据
 

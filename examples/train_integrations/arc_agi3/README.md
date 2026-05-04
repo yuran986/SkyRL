@@ -50,7 +50,7 @@ python examples/train_integrations/arc_agi3/prepare_dataset.py \
 
 The generated parquet files contain `prompt`, `env_class`, and per-episode extras such as `task_id`, `seed`, `operation_mode`, and `environments_dir`.
 Regenerate these parquet files after changing the prompt or action protocol; existing files keep the old prompt text.
-By default, observations include a full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
+By default, observations include a color legend and full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
 
 ## Train
 
