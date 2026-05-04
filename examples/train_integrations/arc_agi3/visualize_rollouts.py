@@ -10,6 +10,44 @@ from typing import Any
 
 
 ACTION_RE = re.compile(r"<action>(.*?)</action>", re.DOTALL)
+GLOBAL_STEP_RE = re.compile(r"global_step_(\d+)")
+
+
+def _global_step_from_path(path: Path) -> int | None:
+    match = GLOBAL_STEP_RE.search(path.name)
+    return int(match.group(1)) if match else None
+
+
+def _global_step_value(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _rollout_file_sort_key(path: Path) -> tuple[int, int, str]:
+    global_step = _global_step_from_path(path)
+    return (0, global_step, path.name) if global_step is not None else (1, 0, path.name)
+
+
+def _trajectory_sort_key(row: dict[str, Any]) -> tuple[int, int, int, int]:
+    global_step = _global_step_value(row.get("global_step"))
+    if global_step is None:
+        source_file = row.get("_source_file")
+        if source_file:
+            global_step = _global_step_from_path(Path(source_file))
+    step_group = global_step if global_step is not None else 0
+
+    sample_index = _global_step_value(row.get("sample_index"))
+    row_index = _global_step_value(row.get("_row_index"))
+    return (
+        0 if global_step is not None else 1,
+        step_group,
+        sample_index if sample_index is not None else 0,
+        row_index if row_index is not None else 0,
+    )
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -40,7 +78,7 @@ def _find_rollout_files(paths: list[Path]) -> list[Path]:
 
         dumped_rollouts = path / "dumped_rollouts"
         search_dir = dumped_rollouts if dumped_rollouts.is_dir() else path
-        files.extend(sorted(search_dir.glob("*_rollouts.jsonl")))
+        files.extend(sorted(search_dir.glob("*_rollouts.jsonl"), key=_rollout_file_sort_key))
 
     unique = []
     seen = set()
@@ -51,7 +89,7 @@ def _find_rollout_files(paths: list[Path]) -> list[Path]:
             seen.add(resolved)
     if not unique:
         raise FileNotFoundError("no *_rollouts.jsonl files found")
-    return unique
+    return sorted(unique, key=_rollout_file_sort_key)
 
 
 def _last_tag(pattern: re.Pattern[str], text: str) -> str:
@@ -94,6 +132,7 @@ def _trajectory_summary(row: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def _build_report_data(rows: list[dict[str, Any]], max_trajectories: int | None) -> dict[str, Any]:
+    rows = sorted(rows, key=_trajectory_sort_key)
     if max_trajectories is not None:
         rows = rows[:max_trajectories]
 
@@ -640,7 +679,11 @@ def main() -> None:
 
     input_paths = [Path(path) for path in args.paths]
     rollout_files = _find_rollout_files(input_paths)
-    rows = [row for file_path in rollout_files for row in _read_jsonl(file_path)]
+    rows = []
+    for file_path in rollout_files:
+        for row in _read_jsonl(file_path):
+            row["_row_index"] = len(rows)
+            rows.append(row)
     report_data = _build_report_data(rows, args.max_trajectories)
 
     data_json = json.dumps(report_data, ensure_ascii=False).replace("</", "<\\/")
