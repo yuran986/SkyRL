@@ -368,6 +368,36 @@ def _html_template(title: str, data_json: str) -> str:
     summary {{ cursor: pointer; color: var(--accent); }}
     .two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
     .empty {{ color: var(--muted); padding: 24px; }}
+    .action-viewer-row {{ display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 8px; }}
+    .action-viewer-row strong {{ flex: 1; }}
+    .frame-panel {{
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 5;
+      width: 292px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 10px 30px rgba(16, 24, 40, 0.16);
+      overflow: hidden;
+    }}
+    .frame-panel h2 {{
+      margin: 0;
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      background: #fbfcfe;
+    }}
+    .frame-panel-body {{ padding: 10px; }}
+    .frame-meta {{ color: var(--muted); font-size: 12px; margin-bottom: 8px; }}
+    #frame-canvas {{
+      width: 256px;
+      height: 256px;
+      image-rendering: pixelated;
+      border: 1px solid var(--line);
+      background: #fff;
+    }}
     @media (max-width: 900px) {{
       .stats {{ grid-template-columns: repeat(2, 1fr); }}
       main {{ grid-template-columns: 1fr; }}
@@ -375,6 +405,7 @@ def _html_template(title: str, data_json: str) -> str:
       .content {{ max-height: none; }}
       .two-col {{ grid-template-columns: 1fr; }}
       .charts {{ grid-template-columns: 1fr; }}
+      .frame-panel {{ position: static; width: auto; margin: 0 12px 12px; }}
     }}
   </style>
 </head>
@@ -399,6 +430,13 @@ def _html_template(title: str, data_json: str) -> str:
     <aside id="trajectory-list"></aside>
     <section class="content" id="detail"></section>
   </main>
+  <div class="frame-panel" id="frame-panel">
+    <h2>Frame After Action</h2>
+    <div class="frame-panel-body">
+      <div class="frame-meta" id="frame-meta">Select an action to view its frame.</div>
+      <canvas id="frame-canvas" width="256" height="256"></canvas>
+    </div>
+  </div>
   <script type="application/json" id="rollout-data">{data_json}</script>
   <script>
     const data = JSON.parse(document.getElementById('rollout-data').textContent);
@@ -416,6 +454,98 @@ def _html_template(title: str, data_json: str) -> str:
       if (value === null || value === undefined) return '';
       if (typeof value === 'string') return value;
       return JSON.stringify(value, null, 2);
+    }}
+
+    const framePalette = [
+      '#ffffff', '#f2f4f7', '#cfd4dc', '#85888f',
+      '#202124', '#000000', '#d946ef', '#f0abfc',
+      '#ef4444', '#2563eb', '#60a5fa', '#facc15',
+      '#f97316', '#7f1d1d', '#22c55e', '#7c3aed',
+    ];
+
+    function normalizeFrame(value) {{
+      if (!value) return null;
+      if (value.frame !== undefined) value = value.frame;
+      if (Array.isArray(value) && value.length && Array.isArray(value[0]) && Array.isArray(value[0][0])) {{
+        value = value[0];
+      }}
+      if (!Array.isArray(value) || !value.length || !Array.isArray(value[0])) return null;
+      return value.map(row => row.map(cell => {{
+        const numberValue = typeof cell === 'string' ? parseInt(cell, 16) : Number(cell);
+        return Number.isFinite(numberValue) && numberValue >= 0 && numberValue <= 15 ? numberValue : null;
+      }}));
+    }}
+
+    function parseFrameFromObservationText(source) {{
+      const match = String(source || '').match(/current_frame:\\s*\\nshape=\\d+x\\d+ encoding=hex_0_to_f\\n([\\s\\S]*?)(?:\\n\\n|\\nlast_model_output=|\\nRespond with|$)/);
+      if (!match) return null;
+      const rows = [];
+      match[1].split('\\n').forEach(line => {{
+        const rowMatch = line.match(/^y\\d+:\\s*([0-9a-f?]+)/i);
+        if (!rowMatch) return;
+        rows.push([...rowMatch[1]].map(char => char === '?' ? null : parseInt(char, 16)));
+      }});
+      return rows.length ? rows : null;
+    }}
+
+    function frameForStep(step) {{
+      const metadata = step.metadata || {{}};
+      const directFrame = normalizeFrame(metadata.frame);
+      if (directFrame) return directFrame;
+      const observationText = (step.observations || []).map(item => item.content || '').join('\\n');
+      return parseFrameFromObservationText(observationText);
+    }}
+
+    function parsedActionForStep(step, actionText) {{
+      const metadata = step.metadata || {{}};
+      if (metadata.parsed_action) return metadata.parsed_action;
+      try {{
+        const parsed = JSON.parse(actionText);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      }} catch {{
+        return null;
+      }}
+    }}
+
+    function renderFrame(frame, label, parsedAction) {{
+      const canvas = document.getElementById('frame-canvas');
+      const meta = document.getElementById('frame-meta');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!frame) {{
+        meta.textContent = `${{label}}: frame unavailable in this rollout log.`;
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+      }}
+
+      const height = frame.length;
+      const width = Math.max(...frame.map(row => row.length));
+      const cell = Math.min(canvas.width / width, canvas.height / height);
+      const xOffset = (canvas.width - width * cell) / 2;
+      const yOffset = (canvas.height - height * cell) / 2;
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      frame.forEach((row, y) => {{
+        row.forEach((value, x) => {{
+          ctx.fillStyle = value === null ? '#e5e7eb' : framePalette[value] || '#e5e7eb';
+          ctx.fillRect(xOffset + x * cell, yOffset + y * cell, Math.ceil(cell), Math.ceil(cell));
+        }});
+      }});
+
+      if (parsedAction && parsedAction.x !== undefined && parsedAction.y !== undefined) {{
+        const x = Number(parsedAction.x);
+        const y = Number(parsedAction.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {{
+          ctx.strokeStyle = '#111827';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(xOffset + (x + 0.5) * cell, yOffset + (y + 0.5) * cell, Math.max(4, cell * 1.4), 0, Math.PI * 2);
+          ctx.stroke();
+        }}
+      }}
+      const actionLabel = parsedAction ? ` action=${{text(parsedAction)}}` : '';
+      meta.textContent = `${{label}} · ${{width}}x${{height}}${{actionLabel}}`;
     }}
 
     function extractLast(re, source) {{
@@ -540,11 +670,17 @@ def _html_template(title: str, data_json: str) -> str:
       const curves = renderCurveSection();
       if (curves) detail.append(curves);
 
+      let firstRenderableFrame = null;
       (row.steps || []).forEach((step, idx) => {{
         const metadata = step.metadata || {{}};
         const modelOutput = step.model_output || '';
         const think = extractLast(/<think>([\\s\\S]*?)<\\/think>/g, modelOutput);
         const action = extractLast(/<action>([\\s\\S]*?)<\\/action>/g, modelOutput);
+        const frame = frameForStep(step);
+        const parsedAction = parsedActionForStep(step, action);
+        if (!firstRenderableFrame && frame) {{
+          firstRenderableFrame = {{ frame, label: `Turn ${{step.turn ?? idx + 1}}`, parsedAction }};
+        }}
         const stepSection = section('');
         const body = stepSection.querySelector('.section-body');
         const head = document.createElement('div');
@@ -571,7 +707,20 @@ def _html_template(title: str, data_json: str) -> str:
           body.append(error);
         }}
         body.append(labelPre('Think', think || '(missing <think>)'));
-        body.append(labelPre('Action', action || '(missing <action>)'));
+
+        const actionBlock = labelPre('Action', action || '(missing <action>)');
+        const actionHeader = actionBlock.querySelector('strong');
+        const actionRow = document.createElement('div');
+        actionRow.className = 'action-viewer-row';
+        const actionButton = document.createElement('button');
+        actionButton.type = 'button';
+        actionButton.textContent = frame ? 'View frame after action' : 'Frame unavailable';
+        actionButton.disabled = !frame;
+        actionButton.onclick = () => renderFrame(frame, `Turn ${{step.turn ?? idx + 1}}`, parsedAction);
+        actionRow.append(actionHeader, actionButton);
+        actionBlock.prepend(actionRow);
+        body.append(actionBlock);
+
         body.append(labelPre('Observation', text(step.observations)));
 
         const two = document.createElement('div');
@@ -587,6 +736,11 @@ def _html_template(title: str, data_json: str) -> str:
         body.append(raw);
         detail.append(stepSection);
       }});
+      if (firstRenderableFrame) {{
+        renderFrame(firstRenderableFrame.frame, firstRenderableFrame.label, firstRenderableFrame.parsedAction);
+      }} else {{
+        renderFrame(null, `step ${{summary.global_step ?? '?'}} / sample ${{summary.sample_index ?? summary.index}}`, null);
+      }}
     }}
 
     function renderCurveSection() {{

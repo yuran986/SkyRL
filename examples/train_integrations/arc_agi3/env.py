@@ -161,6 +161,24 @@ def _grid_from_frame(frame_like: Any) -> list[list[Any]] | None:
     return None
 
 
+def _frame_metadata(frame_like: Any) -> list[list[int | None]] | None:
+    grid = _grid_from_frame(frame_like)
+    if grid is None:
+        return None
+    normalized: list[list[int | None]] = []
+    for row in grid:
+        normalized_row: list[int | None] = []
+        for cell in row:
+            try:
+                value = int(cell)
+            except (TypeError, ValueError):
+                normalized_row.append(None)
+                continue
+            normalized_row.append(value if 0 <= value <= 15 else None)
+        normalized.append(normalized_row)
+    return normalized
+
+
 def _format_cell(value: Any) -> str:
     if isinstance(value, int) and 0 <= value <= 15:
         return format(value, "x")
@@ -386,6 +404,7 @@ class ArcAgi3Env(BaseTextEnv):
         parsed: ParsedAction | None = None
         reward_components: dict[str, float] = {}
         diff_metadata = None
+        current_frame = None
         try:
             parsed = parse_model_action(action)
             step_output = self._apply_action(parsed)
@@ -441,6 +460,7 @@ class ArcAgi3Env(BaseTextEnv):
                 "parsed_action": _parsed_action_metadata(parsed),
                 "reward_components": reward_components,
                 "diff_stats": diff_metadata,
+                "frame": _frame_metadata(current_frame if current_frame is not None else self.last_frame),
                 "state": self._state_metadata(step_output),
             },
         )
