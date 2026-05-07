@@ -100,38 +100,26 @@ def _last_tag(pattern: re.Pattern[str], text: str) -> str:
 def _reward_breakdown(row: dict[str, Any]) -> dict[str, Any]:
     steps = row.get("steps") or []
     components: dict[str, float] = {}
-    per_turn = []
     step_reward_sum = 0.0
 
-    for index, step in enumerate(steps, start=1):
+    for step in steps:
         reward = float(step.get("reward") or 0.0)
         step_reward_sum += reward
         metadata = step.get("metadata") or {}
         reward_components = metadata.get("reward_components") or {}
 
-        turn_components = {}
         for key, value in reward_components.items():
             try:
                 numeric_value = float(value)
             except (TypeError, ValueError):
                 continue
             components[key] = components.get(key, 0.0) + numeric_value
-            turn_components[key] = numeric_value
-
-        per_turn.append(
-            {
-                "turn": step.get("turn") or index,
-                "reward": reward,
-                "components": turn_components,
-            }
-        )
 
     total_reward = float(row["total_reward"]) if row.get("total_reward") is not None else step_reward_sum
     return {
         "total_reward": total_reward,
         "step_reward_sum": step_reward_sum,
         "component_sums": components,
-        "per_turn": per_turn,
     }
 
 
@@ -498,6 +486,7 @@ def _html_template(title: str, data_json: str) -> str:
           activeIndex = summary.index;
           updateActiveListSelection();
           renderDetail();
+          document.getElementById('detail').scrollTo({{ top: 0 }});
         }};
         const reward = document.createElement('span');
         reward.className = rewardClass(summary.total_reward);
