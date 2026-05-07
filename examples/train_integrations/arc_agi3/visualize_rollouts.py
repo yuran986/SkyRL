@@ -454,7 +454,12 @@ def _html_template(title: str, data_json: str) -> str:
       list.replaceChildren(...visible.map(summary => {{
         const button = document.createElement('button');
         button.className = 'traj' + (summary.index === activeIndex ? ' active' : '');
-        button.onclick = () => {{ activeIndex = summary.index; renderList(); renderDetail(); }};
+        button.dataset.index = String(summary.index);
+        button.onclick = () => {{
+          activeIndex = summary.index;
+          updateActiveListSelection();
+          renderDetail();
+        }};
         const reward = document.createElement('span');
         reward.className = rewardClass(summary.total_reward);
         reward.textContent = fmt(summary.total_reward);
@@ -467,6 +472,12 @@ def _html_template(title: str, data_json: str) -> str:
         button.append(top, meta);
         return button;
       }}));
+    }}
+
+    function updateActiveListSelection() {{
+      document.querySelectorAll('#trajectory-list .traj').forEach(button => {{
+        button.classList.toggle('active', Number(button.dataset.index) === activeIndex);
+      }});
     }}
 
     function renderDetail() {{
