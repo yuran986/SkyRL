@@ -97,6 +97,44 @@ def _last_tag(pattern: re.Pattern[str], text: str) -> str:
     return matches[-1].strip() if matches else ""
 
 
+def _reward_breakdown(row: dict[str, Any]) -> dict[str, Any]:
+    steps = row.get("steps") or []
+    components: dict[str, float] = {}
+    per_turn = []
+    step_reward_sum = 0.0
+
+    for index, step in enumerate(steps, start=1):
+        reward = float(step.get("reward") or 0.0)
+        step_reward_sum += reward
+        metadata = step.get("metadata") or {}
+        reward_components = metadata.get("reward_components") or {}
+
+        turn_components = {}
+        for key, value in reward_components.items():
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                continue
+            components[key] = components.get(key, 0.0) + numeric_value
+            turn_components[key] = numeric_value
+
+        per_turn.append(
+            {
+                "turn": step.get("turn") or index,
+                "reward": reward,
+                "components": turn_components,
+            }
+        )
+
+    total_reward = float(row["total_reward"]) if row.get("total_reward") is not None else step_reward_sum
+    return {
+        "total_reward": total_reward,
+        "step_reward_sum": step_reward_sum,
+        "component_sums": components,
+        "per_turn": per_turn,
+    }
+
+
 def _trajectory_summary(row: dict[str, Any], index: int) -> dict[str, Any]:
     steps = row.get("steps") or []
     rewards = [float(step.get("reward") or 0.0) for step in steps]
@@ -124,6 +162,7 @@ def _trajectory_summary(row: dict[str, Any], index: int) -> dict[str, Any]:
         "stop_reason": row.get("stop_reason"),
         "invalid_steps": invalid_steps,
         "positive_steps": positive_steps,
+        "reward_breakdown": _reward_breakdown(row),
         "success": env_metrics.get("success"),
         "levels_completed": env_metrics.get("levels_completed"),
         "final_score": env_metrics.get("final_score"),
@@ -490,8 +529,10 @@ def _html_template(title: str, data_json: str) -> str:
       }}
       detail.replaceChildren();
 
-      const curves = renderCurveSection();
-      if (curves) detail.append(curves);
+      const rewardBreakdown = section('Reward Breakdown');
+      const rewardBody = rewardBreakdown.querySelector('.section-body');
+      rewardBody.append(kvPre(summary.reward_breakdown || {{}}));
+      detail.append(rewardBreakdown);
 
       const overview = section('Trajectory Overview');
       const overviewBody = overview.querySelector('.section-body');
@@ -506,6 +547,9 @@ def _html_template(title: str, data_json: str) -> str:
         env_metrics: row.env_metrics,
       }}));
       detail.append(overview);
+
+      const curves = renderCurveSection();
+      if (curves) detail.append(curves);
 
       (row.steps || []).forEach((step, idx) => {{
         const metadata = step.metadata || {{}};
