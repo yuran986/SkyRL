@@ -1020,12 +1020,7 @@ def main() -> None:
 
     input_paths = [Path(path) for path in args.paths]
     all_rollout_files = _find_rollout_files(input_paths)
-    curve_files = _filter_rollout_files(
-        all_rollout_files,
-        latest_files=None,
-        step_from=args.step_from,
-        step_to=args.step_to,
-    )
+    curve_files = all_rollout_files
     rollout_files = _filter_rollout_files(
         all_rollout_files,
         latest_files=args.latest_files,

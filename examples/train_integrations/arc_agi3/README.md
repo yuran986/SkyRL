@@ -197,8 +197,8 @@ jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, di
 Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows rollout-derived
 training curves by `global_step`, summary metrics, trajectory filters, per-turn `<think>`,
 `<action>`, reward components, diff stats, observations, and raw step JSON.
-Training curves scan all rollout files in the selected step range, even when the trajectory
-detail list is sampled with `--latest-files` or `--trajectories-per-file`.
+Training curves scan every rollout file in the export, even when the trajectory detail list is
+sampled with `--latest-files`, `--trajectories-per-file`, `--step-from`, or `--step-to`.
 For long runs, keep the viewer scoped with `--latest-files`, `--trajectories-per-file`,
 `--step-from`, `--step-to`, or `--max-trajectories`. A static self-contained HTML that embeds
 every rollout and frame from a multi-GB export can exhaust memory, so the tool refuses inputs

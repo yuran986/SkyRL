@@ -32,19 +32,19 @@ python examples/train_integrations/arc_agi3/visualize_rollouts.py \
 - `--trajectories-per-file 4`：每个 rollout 文件只展示前 4 条 trajectory，避免 HTML 太大。
 - `-o "$EXPORT_PATH/rollout_viewer.html"`：输出 HTML 到当前 run 目录。
 
-注意：Training Curves 会扫描所选 step 范围内的全部 rollout 文件来算曲线，不只使用详情列表中抽样展示的 trajectory。也就是说，详情可以抽样，曲线仍然尽量代表完整训练过程。
+注意：Training Curves 会扫描 export 里的全部 rollout 文件来算曲线，不受 `--latest-files`、`--trajectories-per-file`、`--max-trajectories`、`--step-from` 或 `--step-to` 影响。也就是说，详情可以抽样或分段查看，曲线始终展示完整训练过程。
 
 ## 常用变体
 
-只看某段 global step：
+只看某段 global step 的 trajectory 详情：
 
 ```bash
 python examples/train_integrations/arc_agi3/visualize_rollouts.py \
   "$EXPORT_PATH" \
-  --step-from 80 \
-  --step-to 120 \
-  --trajectories-per-file 4 \
-  -o "$EXPORT_PATH/rollout_viewer_80_120.html"
+  --step-from 100 \
+  --step-to 110 \
+  --trajectories-per-file 16 \
+  -o "$EXPORT_PATH/rollout_viewer.html"
 ```
 
 只看最近少量文件，适合快速检查：
@@ -129,8 +129,8 @@ export EXPORT_PATH=/path/to/your/export/run
 --latest-files 100 --trajectories-per-file 4
 ```
 
-或者用 `--step-from/--step-to` 分段生成多个 viewer。
+或者用 `--step-from/--step-to` 分段生成多个 viewer。注意这只影响详情列表，不影响 Training Curves。
 
 ### 曲线和左侧列表数量不一致
 
-这是预期行为。曲线用于看训练全流程，会扫描完整 step 范围；左侧列表用于人工检查具体策略，可以抽样展示。
+这是预期行为。曲线用于看完整训练流程，会扫描 export 里的全部 rollout 文件；左侧列表用于人工检查具体策略，可以抽样或分段展示。
