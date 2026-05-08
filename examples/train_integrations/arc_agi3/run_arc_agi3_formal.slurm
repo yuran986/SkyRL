@@ -62,8 +62,3 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.log_path=$HOME/skyrl_logs/arc_agi3
 
 echo "Finished at $(date)"
-python examples/train_integrations/arc_agi3/visualize_rollouts.py \
-  "$EXPORT_PATH" \
-  --latest-files 100 \
-  --trajectories-per-file 4 \
-  -o "$EXPORT_PATH/rollout_viewer.html"
