@@ -51,8 +51,8 @@ def _trajectory_sort_key(row: dict[str, Any]) -> tuple[int, int, int, int]:
     )
 
 
-def _read_jsonl(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
-    rows = []
+def _iter_jsonl(path: Path, limit: int | None = None):
+    rows_read = 0
     with path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             line = line.strip()
@@ -63,9 +63,16 @@ def _read_jsonl(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{path}:{line_number}: invalid JSONL: {exc}") from exc
             row["_source_file"] = str(path)
-            rows.append(row)
-            if limit is not None and len(rows) >= limit:
+            yield row
+            rows_read += 1
+            if limit is not None and rows_read >= limit:
                 break
+
+
+def _read_jsonl(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
+    rows = []
+    for row in _iter_jsonl(path, limit=limit):
+        rows.append(row)
     return rows
 
 
@@ -191,13 +198,19 @@ def _trajectory_summary(row: dict[str, Any], index: int) -> dict[str, Any]:
     }
 
 
-def _build_report_data(rows: list[dict[str, Any]], max_trajectories: int | None) -> dict[str, Any]:
+def _build_report_data(
+    rows: list[dict[str, Any]],
+    max_trajectories: int | None,
+    curve_step_summaries: list[dict[str, Any]] | None = None,
+    curve_num_trajectories: int | None = None,
+    curve_num_files: int | None = None,
+) -> dict[str, Any]:
     rows = sorted(rows, key=_trajectory_sort_key)
     if max_trajectories is not None:
         rows = rows[:max_trajectories]
 
     summaries = [_trajectory_summary(row, index) for index, row in enumerate(rows)]
-    step_summaries = _step_summaries(summaries)
+    step_summaries = curve_step_summaries if curve_step_summaries is not None else _step_summaries(summaries)
     rewards = [summary["total_reward"] for summary in summaries]
     all_steps = [step for row in rows for step in (row.get("steps") or [])]
     invalid_steps = [
@@ -225,6 +238,11 @@ def _build_report_data(rows: list[dict[str, Any]], max_trajectories: int | None)
             "invalid_steps": len(invalid_steps),
             "positive_steps": len(positive_steps),
             "top_actions": sorted(action_counts.items(), key=lambda item: item[1], reverse=True)[:20],
+        },
+        "curve_summary": {
+            "num_trajectories": curve_num_trajectories if curve_num_trajectories is not None else len(rows),
+            "num_files": curve_num_files,
+            "sampled_for_detail": curve_step_summaries is not None,
         },
         "step_summaries": step_summaries,
         "trajectories": rows,
@@ -265,6 +283,16 @@ def _step_summaries(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return results
+
+
+def _read_curve_step_summaries(files: list[Path]) -> tuple[list[dict[str, Any]], int]:
+    summaries = []
+    count = 0
+    for file_path in files:
+        for row in _iter_jsonl(file_path):
+            summaries.append(_trajectory_summary(row, count))
+            count += 1
+    return _step_summaries(summaries), count
 
 
 def _default_output_path(input_paths: list[Path]) -> Path:
@@ -496,6 +524,7 @@ def _html_template(title: str, data_json: str) -> str:
     const summaries = data.trajectory_summaries;
     const trajectories = data.trajectories;
     const stepSummaries = data.step_summaries || [];
+    const curveSummary = data.curve_summary || {{}};
     let activeIndex = 0;
     let currentFrameItems = [];
 
@@ -834,6 +863,10 @@ def _html_template(title: str, data_json: str) -> str:
       if (!stepSummaries.length) return null;
       const sec = section('Training Curves From Rollouts');
       const body = sec.querySelector('.section-body');
+      const note = document.createElement('div');
+      note.className = 'muted';
+      note.textContent = `Curves use ${{curveSummary.num_trajectories ?? stepSummaries.length}} trajectories from ${{curveSummary.num_files ?? '?'}} rollout file(s), independent of the sampled trajectory list below.`;
+      body.append(note);
       const charts = document.createElement('div');
       charts.className = 'charts';
       charts.append(
@@ -986,8 +1019,15 @@ def main() -> None:
         raise SystemExit("--trajectories-per-file must be positive")
 
     input_paths = [Path(path) for path in args.paths]
+    all_rollout_files = _find_rollout_files(input_paths)
+    curve_files = _filter_rollout_files(
+        all_rollout_files,
+        latest_files=None,
+        step_from=args.step_from,
+        step_to=args.step_to,
+    )
     rollout_files = _filter_rollout_files(
-        _find_rollout_files(input_paths),
+        all_rollout_files,
         latest_files=args.latest_files,
         step_from=args.step_from,
         step_to=args.step_to,
@@ -1007,6 +1047,7 @@ def main() -> None:
             "or pass --allow-large if you really want to embed everything."
         )
 
+    curve_step_summaries, curve_num_trajectories = _read_curve_step_summaries(curve_files)
     rows = []
     for file_path in rollout_files:
         for row in _read_jsonl(file_path, limit=args.trajectories_per_file):
@@ -1016,14 +1057,21 @@ def main() -> None:
                 break
         if args.max_trajectories is not None and len(rows) >= args.max_trajectories:
             break
-    report_data = _build_report_data(rows, args.max_trajectories)
+    report_data = _build_report_data(
+        rows,
+        args.max_trajectories,
+        curve_step_summaries=curve_step_summaries,
+        curve_num_trajectories=curve_num_trajectories,
+        curve_num_files=len(curve_files),
+    )
 
     data_json = json.dumps(report_data, ensure_ascii=False).replace("</", "<\\/")
     output = Path(args.output).expanduser() if args.output else _default_output_path(input_paths)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(_html_template(args.title, data_json), encoding="utf-8")
 
-    print(f"Loaded {len(rows)} trajectories from {len(rollout_files)} file(s), selected input {input_size_mb:.1f} MiB.")
+    print(f"Loaded {len(rows)} display trajectories from {len(rollout_files)} file(s), selected input {input_size_mb:.1f} MiB.")
+    print(f"Built curves from {curve_num_trajectories} trajectories across {len(curve_files)} file(s).")
     print(f"Wrote {output}")
 
 
