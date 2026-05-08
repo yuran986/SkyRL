@@ -32,6 +32,12 @@ FRAME_COLOR_NAMES = {
     15: "purple",
 }
 
+OBSERVATION_GUIDE = (
+    "observation_guide: frame_diff compares the current frame after your last action with the previous frame; "
+    "num_changes is the number of changed cells; bbox is the changed rectangle; examples list changed cells as "
+    "{x,y,before,after}; changed_patch is a crop of the current frame around the changed area; coordinates are 0..63."
+)
+
 
 def _format_color_legend() -> str:
     parts = []
@@ -583,6 +589,7 @@ class ArcAgi3Env(BaseTextEnv):
             f"available_actions={action_space}",
         ]
         if initial and self.frame_observation_mode != "none":
+            lines.append(OBSERVATION_GUIDE)
             lines.append(_format_color_legend())
         lines.append(diff)
         if action_effect is not None:

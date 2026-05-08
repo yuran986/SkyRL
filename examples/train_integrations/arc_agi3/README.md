@@ -62,7 +62,8 @@ python examples/train_integrations/arc_agi3/prepare_dataset.py \
 
 The generated parquet files contain `prompt`, `env_class`, and per-episode extras such as `task_id`, `seed`, `operation_mode`, and `environments_dir`.
 Regenerate these parquet files after changing the prompt or action protocol; existing files keep the old prompt text.
-By default, observations include a color legend and full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
+By default, observations include a short observation guide, a color legend and full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
+`frame_diff` compares the current frame after the last action with the previous frame; `changed_patch` is a current-frame crop around changed cells.
 Reward settings are also written into the parquet rows. Regenerate the data after changing
 `ARC_AGI3_*_REWARD` variables so the run artifact records the exact reward used.
 
