@@ -179,8 +179,8 @@ EXPORT_PATH=$HOME/exports/arc_agi3/arc_agi3_latest_YYYYmmdd_HHMMSS
 
 python examples/train_integrations/arc_agi3/visualize_rollouts.py \
   "$EXPORT_PATH" \
-  --latest-files 20 \
-  --max-trajectories 100 \
+  --latest-files 100 \
+  --trajectories-per-file 4 \
   -o "$EXPORT_PATH/rollout_viewer.html"
 
 jq -r '.steps[].model_output' "$EXPORT_PATH/dumped_rollouts/global_step_1_rollouts.jsonl" \
@@ -196,10 +196,10 @@ jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, di
 Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows rollout-derived
 training curves by `global_step`, summary metrics, trajectory filters, per-turn `<think>`,
 `<action>`, reward components, diff stats, observations, and raw step JSON.
-For long runs, keep the viewer scoped with `--latest-files`, `--step-from`, `--step-to`, or
-`--max-trajectories`. A static self-contained HTML that embeds every rollout and frame from
-a multi-GB export can exhaust memory, so the tool refuses inputs above 128 MiB unless
-`--allow-large` is passed.
+For long runs, keep the viewer scoped with `--latest-files`, `--trajectories-per-file`,
+`--step-from`, `--step-to`, or `--max-trajectories`. A static self-contained HTML that embeds
+every rollout and frame from a multi-GB export can exhaust memory, so the tool refuses inputs
+above 128 MiB unless `--allow-large` is passed.
 When frame data is present, selecting a sample automatically loads the first available turn
 in the frame panel. Use the frame slider to scrub through the sample's action sequence, or
 click a per-turn `View frame after action` button to jump to that action's frame.

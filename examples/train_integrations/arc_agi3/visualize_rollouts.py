@@ -51,7 +51,7 @@ def _trajectory_sort_key(row: dict[str, Any]) -> tuple[int, int, int, int]:
     )
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
     rows = []
     with path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
@@ -64,6 +64,8 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(f"{path}:{line_number}: invalid JSONL: {exc}") from exc
             row["_source_file"] = str(path)
             rows.append(row)
+            if limit is not None and len(rows) >= limit:
+                break
     return rows
 
 
@@ -961,6 +963,12 @@ def main() -> None:
     parser.add_argument("--output", "-o", default=None, help="Output HTML path.")
     parser.add_argument("--title", default="ARC-AGI-3 Rollout Viewer")
     parser.add_argument("--max-trajectories", type=int, default=None)
+    parser.add_argument(
+        "--trajectories-per-file",
+        type=int,
+        default=None,
+        help="Only load the first N trajectories from each selected rollout file.",
+    )
     parser.add_argument("--latest-files", type=int, default=None, help="Only load the latest N rollout JSONL files.")
     parser.add_argument("--step-from", type=int, default=None, help="Only load rollout files at or after this global step.")
     parser.add_argument("--step-to", type=int, default=None, help="Only load rollout files at or before this global step.")
@@ -972,6 +980,10 @@ def main() -> None:
     )
     parser.add_argument("--allow-large", action="store_true", help="Disable the static viewer input size guard.")
     args = parser.parse_args()
+    if args.max_trajectories is not None and args.max_trajectories <= 0:
+        raise SystemExit("--max-trajectories must be positive")
+    if args.trajectories_per_file is not None and args.trajectories_per_file <= 0:
+        raise SystemExit("--trajectories-per-file must be positive")
 
     input_paths = [Path(path) for path in args.paths]
     rollout_files = _filter_rollout_files(
@@ -981,18 +993,23 @@ def main() -> None:
         step_to=args.step_to,
     )
     input_size_mb = _total_size_mb(rollout_files)
-    if not args.allow_large and args.max_trajectories is None and input_size_mb > args.max_input_mb:
+    if (
+        not args.allow_large
+        and args.max_trajectories is None
+        and args.trajectories_per_file is None
+        and input_size_mb > args.max_input_mb
+    ):
         raise SystemExit(
             f"Selected rollout JSONL is {input_size_mb:.1f} MiB across {len(rollout_files)} file(s), "
             "which is too large for one self-contained static HTML viewer. "
-            "Use --latest-files 20 --max-trajectories 100, --step-from/--step-to, "
-            "--max-trajectories, "
+            "Use --latest-files 100 --trajectories-per-file 4, --step-from/--step-to, "
+            "or --max-trajectories, "
             "or pass --allow-large if you really want to embed everything."
         )
 
     rows = []
     for file_path in rollout_files:
-        for row in _read_jsonl(file_path):
+        for row in _read_jsonl(file_path, limit=args.trajectories_per_file):
             row["_row_index"] = len(rows)
             rows.append(row)
             if args.max_trajectories is not None and len(rows) >= args.max_trajectories:
