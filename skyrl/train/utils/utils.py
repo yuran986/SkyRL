@@ -23,6 +23,7 @@ from skyrl.env_vars import (
     _SKYRL_USE_NEW_INFERENCE,
     SKYRL_DUMP_INFRA_LOG_TO_STDOUT,
     SKYRL_LD_LIBRARY_PATH_EXPORT,
+    SKYRL_LOG_RUN_ID,
     SKYRL_PYTHONPATH_EXPORT,
     SKYRL_RAY_PG_TIMEOUT_IN_S,
 )
@@ -704,12 +705,24 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         logger.info(f"Exporting `SKYRL_RAY_PG_TIMEOUT_IN_S` to ray runtime env: {pg_timeout}")
         env_vars["SKYRL_RAY_PG_TIMEOUT_IN_S"] = pg_timeout
 
+    if SKYRL_LOG_RUN_ID:
+        logger.info(f"Exporting `SKYRL_LOG_RUN_ID` to ray runtime env: {SKYRL_LOG_RUN_ID}")
+        env_vars["SKYRL_LOG_RUN_ID"] = SKYRL_LOG_RUN_ID
+
     for var_name in ["SKYRL_FORCE_BROADCAST_WEIGHT_SYNC", "SKYRL_FORCE_NCCL_WEIGHT_SYNC"]:
         if value := os.environ.get(var_name):
             logger.info(f"Exporting `{var_name}` to ray runtime env: {value}")
             env_vars[var_name] = value
 
     return env_vars
+
+
+def _log_file_suffix() -> str:
+    run_id = os.environ.get("SKYRL_LOG_RUN_ID")
+    if not run_id:
+        return datetime.now().strftime("%y%m%d_%H%M%S")
+    sanitized = "".join(char if char.isalnum() or char in "._-" else "_" for char in run_id).strip("._-")
+    return sanitized or datetime.now().strftime("%y%m%d_%H%M%S")
 
 
 def configure_ray_worker_logging() -> None:
@@ -777,8 +790,7 @@ def initialize_ray(cfg: SkyRLTrainConfig):
     if not verbose_logging:
         log_path = Path(cfg.trainer.log_path).resolve()
         log_path.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-        log_file = str(log_path / f"infra-{timestamp}.log")
+        log_file = str(log_path / f"infra-{_log_file_suffix()}.log")
         os.environ["SKYRL_LOG_FILE"] = log_file
         # Pass log file path to workers so they can redirect their output
         env_vars["SKYRL_LOG_FILE"] = log_file

@@ -276,7 +276,11 @@ meaningful diff 的变化像素数范围。
 用于 wandb/swanlab/mlflow/tensorboard 等 tracker 的项目和 run 名。
 
 `trainer.log_path`  
-infra/router 日志目录，建议显式传 `$HOME/skyrl_logs/arc_agi3`。
+infra/router 日志目录，建议显式传 `$HOME/skyrl_logs/arc_agi3`。`run_arc_agi3_grpo.sh`
+会把 `SKYRL_LOG_RUN_ID` 默认设成 `RUN_ID`，因此 infra/router 文件会写成
+`infra-${RUN_ID}.log` 和 `router-${RUN_ID}.log`。正式 Slurm 脚本默认把 `RUN_ID`
+设为 `${SLURM_JOB_NAME}_${SLURM_JOB_ID}`，Slurm stdout 也写成
+`slurm-${RUN_ID}.out`，这样三类日志和 export 目录可以用同一个字符串对应。
 
 `trainer.ckpt_path=$CKPT_PATH`  
 checkpoint 根目录。之前 home quota 会爆，建议始终放 `/usr/project/xtmp`。

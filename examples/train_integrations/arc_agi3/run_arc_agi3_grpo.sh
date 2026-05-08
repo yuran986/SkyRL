@@ -47,11 +47,13 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export SKYRL_LOG_RUN_ID="${SKYRL_LOG_RUN_ID:-$RUN_ID}"
 if [ -n "$SKYRL_FORCE_BROADCAST_WEIGHT_SYNC" ]; then
   export SKYRL_FORCE_BROADCAST_WEIGHT_SYNC
 fi
 
 echo "ARC-AGI-3 export path: $EXPORT_PATH"
+echo "ARC-AGI-3 log run id: $SKYRL_LOG_RUN_ID"
 echo "ARC-AGI-3 python: $PYTHON_BIN"
 echo "ARC-AGI-3 colocate_all: $COLOCATE_ALL"
 echo "ARC-AGI-3 train GPUs: $NUM_GPUS"

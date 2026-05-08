@@ -102,12 +102,16 @@ Use `COLOCATE_ALL=true` only on nodes where colocated CUDA IPC weight sync is kn
 On nodes that reject CUDA IPC with `pidfd_getfd: Operation not permitted`, keep
 `COLOCATE_ALL=false` and split the available GPUs between training and inference.
 
-Infrastructure logs are written under `trainer.log_path`; with the command above, check
-`$HOME/skyrl_logs/arc_agi3/infra-*.log` and `router-*.log`. If the smoke run runs out of memory,
-first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and `N_SAMPLES_PER_PROMPT`.
 By default, `run_arc_agi3_grpo.sh` creates a unique export directory for each run:
 `$HOME/exports/arc_agi3/${RUN_NAME}_YYYYmmdd_HHMMSS`. The script prints the resolved
-`ARC-AGI-3 export path` at startup. Structured training rollouts are written to
+`ARC-AGI-3 export path` and `ARC-AGI-3 log run id` at startup.
+Infrastructure logs are written under `trainer.log_path` using the same run id:
+`infra-${RUN_ID}.log` and `router-${RUN_ID}.log`. If `SKYRL_LOG_RUN_ID` is set, that value
+is used for infrastructure log names; otherwise `run_arc_agi3_grpo.sh` sets it to `RUN_ID`.
+The formal Slurm script also uses this id in `slurm-${RUN_ID}.out`, so stdout, infra,
+router, and export artifacts can be matched by the same string. If the smoke run runs out
+of memory, first reduce `TRAIN_BATCH_SIZE`, `POLICY_MINI_BATCH_SIZE`, and
+`N_SAMPLES_PER_PROMPT`. Structured training rollouts are written to
 `$EXPORT_PATH/dumped_rollouts/global_step_*_rollouts.jsonl`.
 Each JSONL row contains one trajectory with the initial prompt/messages seen by the model,
 per-turn action, observation, reward, reward components, diff stats, and environment state.
@@ -197,7 +201,8 @@ click a per-turn `View frame after action` button to jump to that action's frame
 ## Metric Loggers
 
 `LOGGER` is passed to `trainer.logger` and controls the metric tracker. It is separate from
-`trainer.log_path`, which stores infrastructure logs such as `infra-*.log` and `router-*.log`.
+`trainer.log_path`, which stores infrastructure logs such as `infra-${RUN_ID}.log` and
+`router-${RUN_ID}.log`.
 For smoke tests, keep `LOGGER=console`; for longer runs, prefer `tensorboard`, `wandb`, or
 `swanlab`.
 

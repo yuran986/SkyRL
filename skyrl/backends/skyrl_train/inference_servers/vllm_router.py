@@ -27,6 +27,14 @@ from skyrl.env_vars import SKYRL_WAIT_UNTIL_INFERENCE_SERVER_HEALTHY_TIMEOUT_S
 logger = logging.getLogger(__name__)
 
 
+def _log_file_suffix() -> str:
+    run_id = os.environ.get("SKYRL_LOG_RUN_ID")
+    if not run_id:
+        return datetime.now().strftime("%y%m%d_%H%M%S")
+    sanitized = "".join(char if char.isalnum() or char in "._-" else "_" for char in run_id).strip("._-")
+    return sanitized or datetime.now().strftime("%y%m%d_%H%M%S")
+
+
 def _run_router_with_logging(router_args: RouterArgs, log_file: Optional[str]) -> None:
     """Target for the router child process.
 
@@ -68,9 +76,11 @@ class VLLMRouter:
         """
         Args:
             router_args: Configuration for the vllm-router.
-            log_path: Directory for router log files.  When set, a file
-                ``router-YYMMDD_HHMMSS.log`` is created under this path
-                and the child process's stdout/stderr are redirected there.
+            log_path: Directory for router log files. When set, a file
+                ``router-{SKYRL_LOG_RUN_ID}.log`` is created under this path
+                if that environment variable is set; otherwise the suffix is
+                ``YYMMDD_HHMMSS``. The child process's stdout/stderr are
+                redirected there.
         """
         self._router_args = router_args
         self._log_path = log_path
@@ -106,8 +116,7 @@ class VLLMRouter:
             RuntimeError: If the router process crashes before becoming healthy.
         """
         if self._log_path is not None:
-            timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-            self._log_file = str(Path(self._log_path) / f"router-{timestamp}.log")
+            self._log_file = str(Path(self._log_path) / f"router-{_log_file_suffix()}.log")
 
         # Release port reservations right before the router rebinds.
         self._release_port_reservations()

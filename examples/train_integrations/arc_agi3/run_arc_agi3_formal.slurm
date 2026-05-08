@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=arc_agi3_formal
+#SBATCH --job-name=arc_agi3_reward_v2
 #SBATCH --partition=compsci-gpu
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:a6000:4
@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=192G
 #SBATCH --time=24:00:00
-#SBATCH --output=/home/users/yz1051/skyrl_logs/arc_agi3/slurm-%j.out
+#SBATCH --output=/home/users/yz1051/skyrl_logs/arc_agi3/slurm-%x_%j.out
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=yingjie.zhang@duke.edu
 
@@ -16,7 +16,7 @@ set -euo pipefail
 cd /home/users/yz1051/SkyRL
 
 mkdir -p /home/users/yz1051/skyrl_logs/arc_agi3
-mkdir -p /usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_formal
+mkdir -p /usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_reward_v2
 
 if [ ! -x .venv/bin/python ]; then
   echo "Missing .venv/bin/python. Build the SkyRL virtualenv before submitting this job." >&2
@@ -25,8 +25,12 @@ fi
 
 source .venv/bin/activate
 
+RUN_ID="${RUN_ID:-${SLURM_JOB_NAME:-arc_agi3_reward_v2}_${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)}}"
+
 echo "Started at $(date)"
 echo "Host: $(hostname)"
+echo "Run ID: $RUN_ID"
+echo "Slurm job ID: ${SLURM_JOB_ID:-none}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi
 
@@ -48,6 +52,7 @@ POLICY_MINI_BATCH_SIZE=2 \
 CKPT_INTERVAL=10 \
 EVAL_INTERVAL=10 \
 RUN_NAME=arc_agi3_reward_v2 \
+RUN_ID=$RUN_ID \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=25 \
   trainer.eval_before_train=false \

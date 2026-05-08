@@ -126,3 +126,12 @@ instead of being redirected to the log file. Useful for debugging startup issues
 Default: False (infrastructure logs go to file only, stdout shows training progress).
 Set ``SKYRL_DUMP_INFRA_LOG_TO_STDOUT=1`` to show all logs on stdout.
 """
+
+SKYRL_LOG_RUN_ID = os.environ.get("SKYRL_LOG_RUN_ID")
+"""
+Optional stable run identifier used in infrastructure log filenames.
+
+When set, SkyRL writes logs as ``infra-{SKYRL_LOG_RUN_ID}.log`` and
+``router-{SKYRL_LOG_RUN_ID}.log`` instead of timestamp-only names. This lets
+external schedulers use the same identifier for their stdout/stderr files.
+"""
