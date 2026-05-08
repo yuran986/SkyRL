@@ -34,6 +34,14 @@ def build_rows(
     full_frame_interval: int,
     patch_radius: int,
     max_diff_examples: int,
+    invalid_action_reward: float,
+    level_reward: float,
+    done_reward: float,
+    meaningful_diff_reward: float,
+    min_meaningful_diff_changes: int,
+    max_meaningful_diff_changes: int,
+    repeat_click_penalty: float,
+    repeat_click_radius: int,
 ) -> list[dict]:
     combos = [(task_id, seed) for task_id in task_ids for seed in seeds]
     if not combos:
@@ -57,6 +65,14 @@ def build_rows(
                 "full_frame_interval": full_frame_interval,
                 "patch_radius": patch_radius,
                 "max_diff_examples": max_diff_examples,
+                "invalid_action_reward": invalid_action_reward,
+                "level_reward": level_reward,
+                "done_reward": done_reward,
+                "meaningful_diff_reward": meaningful_diff_reward,
+                "min_meaningful_diff_changes": min_meaningful_diff_changes,
+                "max_meaningful_diff_changes": max_meaningful_diff_changes,
+                "repeat_click_penalty": repeat_click_penalty,
+                "repeat_click_radius": repeat_click_radius,
             }
         )
     return rows
@@ -77,6 +93,14 @@ def main() -> None:
     parser.add_argument("--full_frame_interval", type=int, default=int(os.getenv("ARC_AGI3_FULL_FRAME_INTERVAL", "8")))
     parser.add_argument("--patch_radius", type=int, default=int(os.getenv("ARC_AGI3_PATCH_RADIUS", "4")))
     parser.add_argument("--max_diff_examples", type=int, default=int(os.getenv("ARC_AGI3_MAX_DIFF_EXAMPLES", "32")))
+    parser.add_argument("--invalid_action_reward", type=float, default=float(os.getenv("ARC_AGI3_INVALID_ACTION_REWARD", "-0.1")))
+    parser.add_argument("--level_reward", type=float, default=float(os.getenv("ARC_AGI3_LEVEL_REWARD", "3.0")))
+    parser.add_argument("--done_reward", type=float, default=float(os.getenv("ARC_AGI3_DONE_REWARD", "0.0")))
+    parser.add_argument("--meaningful_diff_reward", type=float, default=float(os.getenv("ARC_AGI3_MEANINGFUL_DIFF_REWARD", "0.005")))
+    parser.add_argument("--min_meaningful_diff_changes", type=int, default=int(os.getenv("ARC_AGI3_MIN_MEANINGFUL_DIFF_CHANGES", "1")))
+    parser.add_argument("--max_meaningful_diff_changes", type=int, default=int(os.getenv("ARC_AGI3_MAX_MEANINGFUL_DIFF_CHANGES", "512")))
+    parser.add_argument("--repeat_click_penalty", type=float, default=float(os.getenv("ARC_AGI3_REPEAT_CLICK_PENALTY", "-0.02")))
+    parser.add_argument("--repeat_click_radius", type=int, default=int(os.getenv("ARC_AGI3_REPEAT_CLICK_RADIUS", "2")))
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     args = parser.parse_args()
 
@@ -98,6 +122,14 @@ def main() -> None:
         full_frame_interval=args.full_frame_interval,
         patch_radius=args.patch_radius,
         max_diff_examples=args.max_diff_examples,
+        invalid_action_reward=args.invalid_action_reward,
+        level_reward=args.level_reward,
+        done_reward=args.done_reward,
+        meaningful_diff_reward=args.meaningful_diff_reward,
+        min_meaningful_diff_changes=args.min_meaningful_diff_changes,
+        max_meaningful_diff_changes=args.max_meaningful_diff_changes,
+        repeat_click_penalty=args.repeat_click_penalty,
+        repeat_click_radius=args.repeat_click_radius,
     )
     val_rows = build_rows(
         task_ids=task_ids,
@@ -112,6 +144,14 @@ def main() -> None:
         full_frame_interval=args.full_frame_interval,
         patch_radius=args.patch_radius,
         max_diff_examples=args.max_diff_examples,
+        invalid_action_reward=args.invalid_action_reward,
+        level_reward=args.level_reward,
+        done_reward=args.done_reward,
+        meaningful_diff_reward=args.meaningful_diff_reward,
+        min_meaningful_diff_changes=args.min_meaningful_diff_changes,
+        max_meaningful_diff_changes=args.max_meaningful_diff_changes,
+        repeat_click_penalty=args.repeat_click_penalty,
+        repeat_click_radius=args.repeat_click_radius,
     )
 
     Dataset.from_list(train_rows).to_parquet(str(output_dir / "train.parquet"))

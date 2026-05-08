@@ -32,7 +32,7 @@ nvidia-smi
 
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR=$HOME/data/arc_agi3 \
-CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_formal \
+CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_3B_reward_v2 \
 COLOCATE_ALL=false \
 NUM_GPUS=2 \
 INFERENCE_NUM_ENGINES=2 \
@@ -45,11 +45,11 @@ MAX_GENERATE_LENGTH=192 \
 N_SAMPLES_PER_PROMPT=4 \
 TRAIN_BATCH_SIZE=4 \
 POLICY_MINI_BATCH_SIZE=2 \
-CKPT_INTERVAL=20 \
-EVAL_INTERVAL=20 \
-RUN_NAME=arc_agi3_formal \
+CKPT_INTERVAL=10 \
+EVAL_INTERVAL=10 \
+RUN_NAME=arc_agi3_reward_v2 \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
-  trainer.epochs=50 \
+  trainer.epochs=25 \
   trainer.eval_before_train=false \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.micro_forward_batch_size_per_gpu=1 \

@@ -296,6 +296,16 @@ def _diff_summary(diff_stats: FrameDiffStats | None) -> str:
     )
 
 
+def _action_effect_summary(diff_stats: FrameDiffStats | None) -> str:
+    if diff_stats is None:
+        return "last_action_effect=UNKNOWN"
+    if diff_stats.num_changes == 0:
+        return "last_action_effect=NO_CHANGE"
+    assert diff_stats.bbox is not None
+    x1, y1, x2, y2 = diff_stats.bbox
+    return f"last_action_effect=CHANGED num_changes={diff_stats.num_changes} bbox=({x1},{y1})-({x2},{y2})"
+
+
 def _color_name(value: Any) -> str:
     return FRAME_COLOR_NAMES.get(value, str(value))
 
@@ -333,12 +343,14 @@ class ArcAgi3Env(BaseTextEnv):
         ).upper()
         self.environments_dir = self.extras.get("environments_dir", os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
         self.levels_to_complete = int(self.extras.get("levels_to_complete", 6))
-        self.invalid_action_reward = float(self.extras.get("invalid_action_reward", -0.05))
-        self.level_reward = float(self.extras.get("level_reward", 1.0))
-        self.done_reward = float(self.extras.get("done_reward", 1.0))
-        self.meaningful_diff_reward = float(self.extras.get("meaningful_diff_reward", 0.05))
+        self.invalid_action_reward = float(self.extras.get("invalid_action_reward", -0.1))
+        self.level_reward = float(self.extras.get("level_reward", 3.0))
+        self.done_reward = float(self.extras.get("done_reward", 0.0))
+        self.meaningful_diff_reward = float(self.extras.get("meaningful_diff_reward", 0.005))
         self.min_meaningful_diff_changes = int(self.extras.get("min_meaningful_diff_changes", 1))
         self.max_meaningful_diff_changes = int(self.extras.get("max_meaningful_diff_changes", 512))
+        self.repeat_click_penalty = float(self.extras.get("repeat_click_penalty", -0.02))
+        self.repeat_click_radius = int(self.extras.get("repeat_click_radius", 2))
         self.frame_observation_mode = str(self.extras.get("frame_observation_mode", "initial_full_then_diff"))
         self.full_frame_interval = int(self.extras.get("full_frame_interval", 8))
         self.patch_radius = int(self.extras.get("patch_radius", 4))
@@ -358,6 +370,7 @@ class ArcAgi3Env(BaseTextEnv):
         self.last_score = 0.0
         self.last_levels_completed = 0
         self.last_diff_stats: FrameDiffStats | None = None
+        self.last_click: tuple[int, int] | None = None
         self.done = False
         self.success = False
         self.game_over = False
@@ -419,7 +432,7 @@ class ArcAgi3Env(BaseTextEnv):
         if step_output is not None:
             current_frame = _to_plain(getattr(step_output, "frame", None))
             diff_stats = _diff_stats(self.last_frame, current_frame, max_examples=self.max_diff_examples)
-            reward, reward_components = self._compute_reward(step_output, diff_stats)
+            reward, reward_components = self._compute_reward(step_output, diff_stats, parsed)
             self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
             self.success = self._is_success(step_output)
             self.game_over = self._is_game_over(step_output)
@@ -477,33 +490,50 @@ class ArcAgi3Env(BaseTextEnv):
             return self.env.step(action_enum, data={"x": int(parsed.x), "y": int(parsed.y)})
         return self.env.step(action_enum)
 
-    def _compute_reward(self, observation: Any, diff_stats: FrameDiffStats | None) -> tuple[float, dict[str, float]]:
+    def _compute_reward(
+        self,
+        observation: Any,
+        diff_stats: FrameDiffStats | None,
+        parsed: ParsedAction | None,
+    ) -> tuple[float, dict[str, float]]:
         levels_completed = self._read_levels_completed(observation)
         level_delta = max(0, levels_completed - self.last_levels_completed)
         done = bool(getattr(observation, "done", False))
+        click = self._click_tuple(parsed)
+        repeated_click = self._is_repeated_click(click)
 
         components = {
             "level_delta": level_delta * self.level_reward,
             "done": self.done_reward if done else 0.0,
             "meaningful_diff": self.meaningful_diff_reward if self._has_meaningful_diff(diff_stats) else 0.0,
+            "repeat_click": self.repeat_click_penalty if repeated_click else 0.0,
         }
-        reward = 0.0
-        if level_delta > 0:
-            reward += components["level_delta"]
-        if done:
-            reward += components["done"]
-        if self._has_meaningful_diff(diff_stats):
-            reward += components["meaningful_diff"]
+        reward = sum(components.values())
 
         self.last_score = self._read_score(observation)
         self.last_levels_completed = levels_completed
         self.last_diff_stats = diff_stats
+        if click is not None:
+            self.last_click = click
         return reward, components
 
     def _has_meaningful_diff(self, diff_stats: FrameDiffStats | None) -> bool:
         if diff_stats is None:
             return False
         return self.min_meaningful_diff_changes <= diff_stats.num_changes <= self.max_meaningful_diff_changes
+
+    def _click_tuple(self, parsed: ParsedAction | None) -> tuple[int, int] | None:
+        if parsed is None or parsed.name != "ACTION6" or parsed.x is None or parsed.y is None:
+            return None
+        return (int(parsed.x), int(parsed.y))
+
+    def _is_repeated_click(self, click: tuple[int, int] | None) -> bool:
+        if click is None or self.last_click is None:
+            return False
+        return (
+            abs(click[0] - self.last_click[0]) <= self.repeat_click_radius
+            and abs(click[1] - self.last_click[1]) <= self.repeat_click_radius
+        )
 
     def _build_observation_text(
         self,
@@ -519,6 +549,7 @@ class ArcAgi3Env(BaseTextEnv):
         levels_completed = self._read_levels_completed(source)
         score = self._read_score(source)
         current_frame = _to_plain(getattr(source, "frame", None))
+        action_effect = None
         if initial:
             diff = "frame_diff: initial"
             frame_lines = self._frame_observation_lines(
@@ -532,6 +563,7 @@ class ArcAgi3Env(BaseTextEnv):
                 self.last_frame, current_frame, max_examples=self.max_diff_examples
             )
             diff = _diff_summary(diff_stats)
+            action_effect = _action_effect_summary(diff_stats)
             frame_lines = self._frame_observation_lines(
                 initial=initial,
                 current_frame=current_frame,
@@ -553,6 +585,8 @@ class ArcAgi3Env(BaseTextEnv):
         if initial and self.frame_observation_mode != "none":
             lines.append(_format_color_legend())
         lines.append(diff)
+        if action_effect is not None:
+            lines.append(action_effect)
         lines.extend(frame_lines)
         if action is not None:
             lines.append(f"last_model_output={action.strip()[:500]}")

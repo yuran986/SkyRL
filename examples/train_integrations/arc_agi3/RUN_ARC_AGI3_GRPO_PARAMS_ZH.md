@@ -237,12 +237,35 @@ eval 使用确定性输出，便于比较。
 
 `data.train_data`、`data.val_data`  
 由 `DATA_DIR` 拼出 parquet 路径。修改 prompt 或 action 协议后必须重新运行 `prepare_dataset.py`，否则 parquet 里仍是旧 prompt。
+reward 相关设置也会写进 parquet；如果修改 `ARC_AGI3_*_REWARD`，也要重新生成数据，保证训练 artifact 能追踪到当时的 reward。
 
 `environment.env_class=arc_agi3`  
 注册并创建当前 ARC-AGI-3 gym 环境。不要改。
 
 `environment.skyrl_gym.max_env_workers=$MAX_ENV_WORKERS`  
 环境并发数。增大能提高 rollout 并发，但可能让日志和资源调度更复杂。
+
+## ARC-AGI-3 reward 参数
+
+这些参数由 `prepare_dataset.py` 写入 parquet 的每条样本 extras，环境启动时读取。旧 parquet 如果没有这些字段，会使用代码默认值。当前默认值对应 `TRAINING_NOTES_ZH.md` 中的最小变量 reward 实验：
+
+`invalid_action_reward=-0.1`
+非法动作惩罚。当前加重到 `-0.1`，主要针对越界坐标和格式错误。
+
+`level_reward=3.0`
+完成 level 的主奖励。它必须明显大于 diff shaping，否则模型容易只学会制造局部变化。
+
+`done_reward=0.0`
+`done` 是环境结束信号，可能来自成功、失败、game over 或其他终止。为了控制变量，当前先不单独奖励任意 episode 结束，只通过 `level_delta` 和弱 diff 给分。
+
+`meaningful_diff_reward=0.005`
+frame diff shaping。旧值 `0.05` 太强，容易让 agent 过拟合到一小片能触发 diff 的区域。当前只保留弱探索信号。
+
+`min_meaningful_diff_changes=1`、`max_meaningful_diff_changes=512`
+meaningful diff 的变化像素数范围。
+
+`repeat_click_penalty=-0.02`、`repeat_click_radius=2`
+连续点击上一次 ACTION6 坐标附近时扣分。这个只针对局部重复点击，不引入新区域奖励，因此比 novelty reward 更容易归因。
 
 ## 日志、checkpoint 与 dump
 

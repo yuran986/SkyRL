@@ -1,6 +1,14 @@
+from types import SimpleNamespace
+
 import pytest
 
-from examples.train_integrations.arc_agi3.env import parse_model_action
+from examples.train_integrations.arc_agi3.env import (
+    ArcAgi3Env,
+    FrameDiffStats,
+    ParsedAction,
+    _action_effect_summary,
+    parse_model_action,
+)
 
 
 def test_parse_simple_action():
@@ -42,3 +50,73 @@ def test_parse_text_click_action():
 def test_click_requires_coordinates():
     with pytest.raises(ValueError, match="requires"):
         parse_model_action("<action>ACTION6</action>")
+
+
+def test_action_effect_summary_marks_no_change():
+    diff = FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
+
+    assert _action_effect_summary(diff) == "last_action_effect=NO_CHANGE"
+
+
+def test_action_effect_summary_marks_changed_area():
+    diff = FrameDiffStats(num_changes=8, bbox=(1, 2, 3, 4), color_changes=[], examples=[])
+
+    assert _action_effect_summary(diff) == "last_action_effect=CHANGED num_changes=8 bbox=(1,2)-(3,4)"
+
+
+def _reward_env():
+    env = ArcAgi3Env.__new__(ArcAgi3Env)
+    env.levels_to_complete = 6
+    env.level_reward = 3.0
+    env.done_reward = 0.0
+    env.meaningful_diff_reward = 0.005
+    env.min_meaningful_diff_changes = 1
+    env.max_meaningful_diff_changes = 512
+    env.repeat_click_penalty = -0.02
+    env.repeat_click_radius = 2
+    env.last_score = 0.0
+    env.last_levels_completed = 0
+    env.last_diff_stats = None
+    env.last_click = None
+    return env
+
+
+def test_reward_uses_minimal_components():
+    env = _reward_env()
+    observation = SimpleNamespace(levels_completed=0, score=0.0, done=True, state=None)
+    diff = FrameDiffStats(num_changes=8, bbox=(1, 1, 2, 2), color_changes=[], examples=[])
+
+    reward, components = env._compute_reward(observation, diff, ParsedAction(name="ACTION6", x=32, y=32))
+
+    assert components == {
+        "level_delta": 0.0,
+        "done": 0.0,
+        "meaningful_diff": pytest.approx(0.005),
+        "repeat_click": 0.0,
+    }
+    assert reward == pytest.approx(0.005)
+
+
+def test_reward_keeps_progress_dominant_over_diff_shaping():
+    env = _reward_env()
+    observation = SimpleNamespace(levels_completed=1, score=0.0, done=False, state=None)
+    diff = FrameDiffStats(num_changes=8, bbox=(1, 1, 2, 2), color_changes=[], examples=[])
+
+    reward, components = env._compute_reward(observation, diff, ParsedAction(name="ACTION6", x=10, y=10))
+
+    assert components["level_delta"] == pytest.approx(3.0)
+    assert components["meaningful_diff"] == pytest.approx(0.005)
+    assert reward == pytest.approx(3.005)
+
+
+def test_reward_penalizes_nearby_repeated_clicks():
+    env = _reward_env()
+    observation = SimpleNamespace(levels_completed=0, score=0.0, done=False, state=None)
+    diff = FrameDiffStats(num_changes=8, bbox=(1, 1, 2, 2), color_changes=[], examples=[])
+
+    env._compute_reward(observation, diff, ParsedAction(name="ACTION6", x=32, y=32))
+    reward, components = env._compute_reward(observation, diff, ParsedAction(name="ACTION6", x=33, y=33))
+
+    assert components["meaningful_diff"] == pytest.approx(0.005)
+    assert components["repeat_click"] == pytest.approx(-0.02)
+    assert reward == pytest.approx(-0.015)
