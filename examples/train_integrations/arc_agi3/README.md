@@ -7,7 +7,9 @@ This integration wraps the ARC-AGI-3 Toolkit as a `skyrl-gym` text environment s
 Use this file for the day-to-day workflow. The full environment walkthrough is in
 `/home/users/yz1051/SkyRL/ARC_AGI3_ENV_SETUP.md`; the actual launcher is
 `examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh`. A Chinese parameter guide is in
-`examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md`.
+`examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md`. Training observations
+and reward-setting history are tracked in
+`examples/train_integrations/arc_agi3/TRAINING_NOTES_ZH.md`.
 
 The normal order is:
 
@@ -38,6 +40,12 @@ ARC_AGI3_FRAME_OBSERVATION_MODE=initial_full_then_diff
 ARC_AGI3_FULL_FRAME_INTERVAL=8
 ARC_AGI3_PATCH_RADIUS=4
 ARC_AGI3_MAX_DIFF_EXAMPLES=32
+ARC_AGI3_INVALID_ACTION_REWARD=-0.1
+ARC_AGI3_LEVEL_REWARD=3.0
+ARC_AGI3_DONE_REWARD=0.0
+ARC_AGI3_MEANINGFUL_DIFF_REWARD=0.005
+ARC_AGI3_REPEAT_CLICK_PENALTY=-0.02
+ARC_AGI3_REPEAT_CLICK_RADIUS=2
 ```
 
 ## Prepare Data
@@ -54,6 +62,8 @@ python examples/train_integrations/arc_agi3/prepare_dataset.py \
 The generated parquet files contain `prompt`, `env_class`, and per-episode extras such as `task_id`, `seed`, `operation_mode`, and `environments_dir`.
 Regenerate these parquet files after changing the prompt or action protocol; existing files keep the old prompt text.
 By default, observations include a color legend and full frame at initialization, compact diff summaries every turn, local changed patches around the diff bbox, and a full-frame refresh every 8 turns.
+Reward settings are also written into the parquet rows. Regenerate the data after changing
+`ARC_AGI3_*_REWARD` variables so the run artifact records the exact reward used.
 
 ## Train Smoke Run
 
@@ -180,6 +190,9 @@ jq '.steps[] | {turn, reward, reward_components: .metadata.reward_components, di
 Open `rollout_viewer.html` in a browser to inspect each trajectory. The viewer shows rollout-derived
 training curves by `global_step`, summary metrics, trajectory filters, per-turn `<think>`,
 `<action>`, reward components, diff stats, observations, and raw step JSON.
+When frame data is present, selecting a sample automatically loads the first available turn
+in the frame panel. Use the frame slider to scrub through the sample's action sequence, or
+click a per-turn `View frame after action` button to jump to that action's frame.
 
 ## Metric Loggers
 

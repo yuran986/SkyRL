@@ -391,6 +391,22 @@ def _html_template(title: str, data_json: str) -> str:
     }}
     .frame-panel-body {{ padding: 10px; }}
     .frame-meta {{ color: var(--muted); font-size: 12px; margin-bottom: 8px; }}
+    .frame-controls {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }}
+    .frame-controls input[type="range"] {{
+      width: 100%;
+      padding: 0;
+    }}
+    .frame-turn-label {{
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }}
     #frame-canvas {{
       width: 256px;
       height: 256px;
@@ -433,6 +449,10 @@ def _html_template(title: str, data_json: str) -> str:
   <div class="frame-panel" id="frame-panel">
     <h2>Frame After Action</h2>
     <div class="frame-panel-body">
+      <div class="frame-controls">
+        <input id="frame-scrubber" type="range" min="0" max="0" value="0" disabled>
+        <div class="frame-turn-label" id="frame-turn-label">0 / 0</div>
+      </div>
       <div class="frame-meta" id="frame-meta">Select an action to view its frame.</div>
       <canvas id="frame-canvas" width="256" height="256"></canvas>
     </div>
@@ -444,6 +464,7 @@ def _html_template(title: str, data_json: str) -> str:
     const trajectories = data.trajectories;
     const stepSummaries = data.step_summaries || [];
     let activeIndex = 0;
+    let currentFrameItems = [];
 
     const fmt = (value, digits = 4) => {{
       if (value === null || value === undefined || Number.isNaN(Number(value))) return '';
@@ -507,9 +528,35 @@ def _html_template(title: str, data_json: str) -> str:
       }}
     }}
 
-    function renderFrame(frame, label, parsedAction) {{
+    function setFrameItems(items) {{
+      currentFrameItems = items;
+      const scrubber = document.getElementById('frame-scrubber');
+      const label = document.getElementById('frame-turn-label');
+      scrubber.disabled = items.length === 0;
+      scrubber.min = '0';
+      scrubber.max = String(Math.max(0, items.length - 1));
+      scrubber.value = '0';
+      label.textContent = items.length ? `1 / ${{items.length}}` : '0 / 0';
+    }}
+
+    function selectFrame(index) {{
+      const item = currentFrameItems[index];
+      if (!item) {{
+        renderFrame(null, 'No frame available for this trajectory.', null, null);
+        return;
+      }}
+      renderFrame(item.frame, item.label, item.parsedAction, index);
+    }}
+
+    function renderFrame(frame, label, parsedAction, frameIndex = null) {{
       const canvas = document.getElementById('frame-canvas');
       const meta = document.getElementById('frame-meta');
+      const scrubber = document.getElementById('frame-scrubber');
+      const turnLabel = document.getElementById('frame-turn-label');
+      if (frameIndex !== null && frameIndex !== undefined && currentFrameItems[frameIndex]) {{
+        scrubber.value = String(frameIndex);
+        turnLabel.textContent = `${{frameIndex + 1}} / ${{currentFrameItems.length}}`;
+      }}
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!frame) {{
@@ -670,7 +717,7 @@ def _html_template(title: str, data_json: str) -> str:
       const curves = renderCurveSection();
       if (curves) detail.append(curves);
 
-      let firstRenderableFrame = null;
+      const frameItems = [];
       (row.steps || []).forEach((step, idx) => {{
         const metadata = step.metadata || {{}};
         const modelOutput = step.model_output || '';
@@ -678,8 +725,14 @@ def _html_template(title: str, data_json: str) -> str:
         const action = extractLast(/<action>([\\s\\S]*?)<\\/action>/g, modelOutput);
         const frame = frameForStep(step);
         const parsedAction = parsedActionForStep(step, action);
-        if (!firstRenderableFrame && frame) {{
-          firstRenderableFrame = {{ frame, label: `Turn ${{step.turn ?? idx + 1}}`, parsedAction }};
+        let frameIndex = null;
+        if (frame) {{
+          frameIndex = frameItems.length;
+          frameItems.push({{
+            frame,
+            label: `Turn ${{step.turn ?? idx + 1}}`,
+            parsedAction,
+          }});
         }}
         const stepSection = section('');
         const body = stepSection.querySelector('.section-body');
@@ -716,7 +769,7 @@ def _html_template(title: str, data_json: str) -> str:
         actionButton.type = 'button';
         actionButton.textContent = frame ? 'View frame after action' : 'Frame unavailable';
         actionButton.disabled = !frame;
-        actionButton.onclick = () => renderFrame(frame, `Turn ${{step.turn ?? idx + 1}}`, parsedAction);
+        actionButton.onclick = () => renderFrame(frame, `Turn ${{step.turn ?? idx + 1}}`, parsedAction, frameIndex);
         actionRow.append(actionHeader, actionButton);
         actionBlock.prepend(actionRow);
         body.append(actionBlock);
@@ -736,10 +789,11 @@ def _html_template(title: str, data_json: str) -> str:
         body.append(raw);
         detail.append(stepSection);
       }});
-      if (firstRenderableFrame) {{
-        renderFrame(firstRenderableFrame.frame, firstRenderableFrame.label, firstRenderableFrame.parsedAction);
+      setFrameItems(frameItems);
+      if (frameItems.length) {{
+        selectFrame(0);
       }} else {{
-        renderFrame(null, `step ${{summary.global_step ?? '?'}} / sample ${{summary.sample_index ?? summary.index}}`, null);
+        renderFrame(null, `step ${{summary.global_step ?? '?'}} / sample ${{summary.sample_index ?? summary.index}}`, null, null);
       }}
     }}
 
@@ -844,6 +898,9 @@ def _html_template(title: str, data_json: str) -> str:
 
     ['search', 'reward-filter', 'invalid-only', 'positive-step-only'].forEach(id => {{
       document.getElementById(id).addEventListener('input', () => {{ renderList(); renderDetail(); }});
+    }});
+    document.getElementById('frame-scrubber').addEventListener('input', event => {{
+      selectFrame(Number(event.target.value));
     }});
     document.getElementById('reset').onclick = () => {{
       document.getElementById('search').value = '';
