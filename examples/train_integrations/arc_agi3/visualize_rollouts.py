@@ -11,6 +11,7 @@ from typing import Any
 
 ACTION_RE = re.compile(r"<action>(.*?)</action>", re.DOTALL)
 GLOBAL_STEP_RE = re.compile(r"global_step_(\d+)")
+DEFAULT_MAX_INPUT_MB = 128
 
 
 def _global_step_from_path(path: Path) -> int | None:
@@ -90,6 +91,36 @@ def _find_rollout_files(paths: list[Path]) -> list[Path]:
     if not unique:
         raise FileNotFoundError("no *_rollouts.jsonl files found")
     return sorted(unique, key=_rollout_file_sort_key)
+
+
+def _filter_rollout_files(
+    files: list[Path],
+    latest_files: int | None,
+    step_from: int | None,
+    step_to: int | None,
+) -> list[Path]:
+    filtered = []
+    for file_path in files:
+        global_step = _global_step_from_path(file_path)
+        if step_from is not None and (global_step is None or global_step < step_from):
+            continue
+        if step_to is not None and (global_step is None or global_step > step_to):
+            continue
+        filtered.append(file_path)
+
+    if latest_files is not None:
+        if latest_files <= 0:
+            raise ValueError("--latest-files must be positive")
+        filtered = filtered[-latest_files:]
+
+    if not filtered:
+        raise FileNotFoundError("no rollout files remain after filtering")
+    return filtered
+
+
+def _total_size_mb(files: list[Path]) -> float:
+    total_bytes = sum(file_path.stat().st_size for file_path in files)
+    return total_bytes / (1024 * 1024)
 
 
 def _last_tag(pattern: re.Pattern[str], text: str) -> str:
@@ -930,15 +961,44 @@ def main() -> None:
     parser.add_argument("--output", "-o", default=None, help="Output HTML path.")
     parser.add_argument("--title", default="ARC-AGI-3 Rollout Viewer")
     parser.add_argument("--max-trajectories", type=int, default=None)
+    parser.add_argument("--latest-files", type=int, default=None, help="Only load the latest N rollout JSONL files.")
+    parser.add_argument("--step-from", type=int, default=None, help="Only load rollout files at or after this global step.")
+    parser.add_argument("--step-to", type=int, default=None, help="Only load rollout files at or before this global step.")
+    parser.add_argument(
+        "--max-input-mb",
+        type=int,
+        default=DEFAULT_MAX_INPUT_MB,
+        help="Refuse to build a static viewer when selected JSONL input is larger than this many MiB.",
+    )
+    parser.add_argument("--allow-large", action="store_true", help="Disable the static viewer input size guard.")
     args = parser.parse_args()
 
     input_paths = [Path(path) for path in args.paths]
-    rollout_files = _find_rollout_files(input_paths)
+    rollout_files = _filter_rollout_files(
+        _find_rollout_files(input_paths),
+        latest_files=args.latest_files,
+        step_from=args.step_from,
+        step_to=args.step_to,
+    )
+    input_size_mb = _total_size_mb(rollout_files)
+    if not args.allow_large and args.max_trajectories is None and input_size_mb > args.max_input_mb:
+        raise SystemExit(
+            f"Selected rollout JSONL is {input_size_mb:.1f} MiB across {len(rollout_files)} file(s), "
+            "which is too large for one self-contained static HTML viewer. "
+            "Use --latest-files 20 --max-trajectories 100, --step-from/--step-to, "
+            "--max-trajectories, "
+            "or pass --allow-large if you really want to embed everything."
+        )
+
     rows = []
     for file_path in rollout_files:
         for row in _read_jsonl(file_path):
             row["_row_index"] = len(rows)
             rows.append(row)
+            if args.max_trajectories is not None and len(rows) >= args.max_trajectories:
+                break
+        if args.max_trajectories is not None and len(rows) >= args.max_trajectories:
+            break
     report_data = _build_report_data(rows, args.max_trajectories)
 
     data_json = json.dumps(report_data, ensure_ascii=False).replace("</", "<\\/")
@@ -946,7 +1006,7 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(_html_template(args.title, data_json), encoding="utf-8")
 
-    print(f"Loaded {len(rows)} trajectories from {len(rollout_files)} file(s).")
+    print(f"Loaded {len(rows)} trajectories from {len(rollout_files)} file(s), selected input {input_size_mb:.1f} MiB.")
     print(f"Wrote {output}")
 
 
