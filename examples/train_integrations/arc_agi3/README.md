@@ -9,7 +9,8 @@ Use this file for the day-to-day workflow. The full environment walkthrough is i
 `examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh`. A Chinese parameter guide is in
 `examples/train_integrations/arc_agi3/RUN_ARC_AGI3_GRPO_PARAMS_ZH.md`. Training observations
 and reward-setting history are tracked in
-`examples/train_integrations/arc_agi3/TRAINING_NOTES_ZH.md`.
+`examples/train_integrations/arc_agi3/TRAINING_NOTES_ZH.md`. Rollout viewer usage is documented in
+`examples/train_integrations/arc_agi3/ROLLOUT_VIEWER_ZH.md`.
 
 The normal order is:
 
