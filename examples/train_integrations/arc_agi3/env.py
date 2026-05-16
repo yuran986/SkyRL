@@ -4,7 +4,7 @@ import json
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +35,8 @@ FRAME_COLOR_NAMES = {
 OBSERVATION_GUIDE = (
     "observation_guide: frame_diff compares the current frame after your last action with the previous frame; "
     "num_changes is the number of changed cells; bbox is the changed rectangle; examples list changed cells as "
-    "{x,y,before,after}; changed_patch is a crop of the current frame around the changed area; coordinates are 0..63."
+    "{x,y,before,after}; components split contiguous cells with the same before->after color change; "
+    "changed_patch_before/changed_patch/changed_patch_delta show local before/current/delta crops; coordinates are 0..63."
 )
 
 
@@ -64,6 +65,7 @@ class FrameDiffStats:
     bbox: tuple[int, int, int, int] | None
     color_changes: list[tuple[Any, Any, int]]
     examples: list[dict[str, Any]]
+    components: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -209,6 +211,30 @@ def _format_hex_rows(grid: list[list[Any]], y_offset: int = 0, max_rows: int | N
     return f"shape={len(grid)}x{width} encoding=hex_0_to_f\n" + "\n".join(lines)
 
 
+def _format_delta_rows(
+    prev_grid: list[list[Any]], cur_grid: list[list[Any]], y_offset: int = 0, max_rows: int | None = None
+) -> str:
+    height = max(len(prev_grid), len(cur_grid))
+    width = max(
+        max((len(row) for row in prev_grid), default=0),
+        max((len(row) for row in cur_grid), default=0),
+    )
+    shown_height = height if max_rows is None else min(height, max_rows)
+    lines = []
+    for y in range(shown_height):
+        prev_row = prev_grid[y] if y < len(prev_grid) else []
+        cur_row = cur_grid[y] if y < len(cur_grid) else []
+        encoded = []
+        for x in range(width):
+            before = prev_row[x] if x < len(prev_row) else None
+            after = cur_row[x] if x < len(cur_row) else None
+            encoded.append("." if before == after else _format_cell(after))
+        lines.append(f"y{y_offset + y:02d}: {''.join(encoded)}")
+    if max_rows is not None and height > max_rows:
+        lines.append(f"... truncated {height - max_rows} rows")
+    return f"shape={height}x{width} encoding=changed_after_hex_unchanged_dot\n" + "\n".join(lines)
+
+
 def _format_full_frame(frame_like: Any, max_rows: int | None = None) -> str:
     grid = _grid_from_frame(frame_like)
     if grid is None:
@@ -237,15 +263,28 @@ def _crop_grid(
     return cropped, (x1, y1, x2, y2)
 
 
-def _format_diff_patch(frame_like: Any, diff_stats: FrameDiffStats | None, radius: int) -> str:
+def _format_diff_patch(
+    prev_frame_like: Any, cur_frame_like: Any, diff_stats: FrameDiffStats | None, radius: int
+) -> str:
     if diff_stats is None or diff_stats.bbox is None or diff_stats.num_changes == 0:
         return "changed_patch: none"
-    grid = _grid_from_frame(frame_like)
-    if grid is None:
+    prev_grid = _grid_from_frame(prev_frame_like)
+    cur_grid = _grid_from_frame(cur_frame_like)
+    if prev_grid is None or cur_grid is None:
         return "changed_patch: unavailable"
     x1, y1, x2, y2 = diff_stats.bbox
-    patch, (cx1, cy1, cx2, cy2) = _crop_grid(grid, x1 - radius, y1 - radius, x2 + radius, y2 + radius)
-    return f"changed_patch: x={cx1}..{cx2} y={cy1}..{cy2}\n" + _format_hex_rows(patch, y_offset=cy1)
+    cur_patch, (cx1, cy1, cx2, cy2) = _crop_grid(cur_grid, x1 - radius, y1 - radius, x2 + radius, y2 + radius)
+    prev_patch, _ = _crop_grid(prev_grid, cx1, cy1, cx2, cy2)
+    return "\n".join(
+        [
+            f"changed_patch_before: x={cx1}..{cx2} y={cy1}..{cy2}",
+            _format_hex_rows(prev_patch, y_offset=cy1),
+            f"changed_patch: x={cx1}..{cx2} y={cy1}..{cy2}",
+            _format_hex_rows(cur_patch, y_offset=cy1),
+            f"changed_patch_delta: x={cx1}..{cx2} y={cy1}..{cy2}",
+            _format_delta_rows(prev_patch, cur_patch, y_offset=cy1),
+        ]
+    )
 
 
 def _diff_stats(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> FrameDiffStats | None:
@@ -276,12 +315,85 @@ def _diff_stats(prev_frame: Any, cur_frame: Any, max_examples: int = 8) -> Frame
     ys = [y for _, y, _, _ in changes]
     color_changes = Counter((before, after) for _, _, before, after in changes)
     examples = [{"x": x, "y": y, "before": before, "after": after} for x, y, before, after in changes[:max_examples]]
+    components = _changed_components(changes, max_examples=max(1, min(max_examples, 8)))
     return FrameDiffStats(
         num_changes=len(changes),
         bbox=(min(xs), min(ys), max(xs), max(ys)),
         color_changes=[(before, after, count) for (before, after), count in color_changes.most_common(8)],
         examples=examples,
+        components=components,
     )
+
+
+def _changed_components(
+    changes: list[tuple[int, int, Any, Any]], max_examples: int = 8
+) -> list[dict[str, Any]]:
+    change_by_coord = {(x, y): (before, after) for x, y, before, after in changes}
+    visited: set[tuple[int, int]] = set()
+    components: list[dict[str, Any]] = []
+
+    for x, y, before, after in changes:
+        start = (x, y)
+        if start in visited:
+            continue
+
+        stack = [start]
+        visited.add(start)
+        cells: list[tuple[int, int]] = []
+        while stack:
+            cx, cy = stack.pop()
+            cells.append((cx, cy))
+            for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                if (nx, ny) in visited:
+                    continue
+                if change_by_coord.get((nx, ny)) != (before, after):
+                    continue
+                visited.add((nx, ny))
+                stack.append((nx, ny))
+
+        xs = [cell_x for cell_x, _ in cells]
+        ys = [cell_y for _, cell_y in cells]
+        component_examples = [
+            {"x": cell_x, "y": cell_y, "before": before, "after": after}
+            for cell_x, cell_y in sorted(cells, key=lambda cell: (cell[1], cell[0]))[:max_examples]
+        ]
+        components.append(
+            {
+                "size": len(cells),
+                "bbox": (min(xs), min(ys), max(xs), max(ys)),
+                "center": (round(sum(xs) / len(xs), 2), round(sum(ys) / len(ys), 2)),
+                "before": before,
+                "after": after,
+                "examples": component_examples,
+            }
+        )
+
+    components.sort(key=lambda item: (-int(item["size"]), item["bbox"]))
+    for idx, component in enumerate(components):
+        component["id"] = idx
+    return components
+
+
+def _component_summary(components: list[dict[str, Any]], max_components: int = 6) -> str:
+    if not components:
+        return "components=[]"
+
+    compact_components = []
+    for component in components[:max_components]:
+        x1, y1, x2, y2 = component["bbox"]
+        before = _color_name(component["before"])
+        after = _color_name(component["after"])
+        compact_components.append(
+            {
+                "id": component["id"],
+                "size": component["size"],
+                "bbox": f"({x1},{y1})-({x2},{y2})",
+                "center": component["center"],
+                "change": f"{before}->{after}",
+            }
+        )
+    suffix = "" if len(components) <= max_components else f" more={len(components) - max_components}"
+    return f"components={compact_components}{suffix}"
 
 
 def _diff_summary(diff_stats: FrameDiffStats | None) -> str:
@@ -298,7 +410,7 @@ def _diff_summary(diff_stats: FrameDiffStats | None) -> str:
     return (
         f"frame_diff: num_changes={diff_stats.num_changes} "
         f"bbox=({x1},{y1})-({x2},{y2}) "
-        f"colors={color_text} examples={diff_stats.examples}"
+        f"colors={color_text} {_component_summary(diff_stats.components)}"
     )
 
 
@@ -330,6 +442,7 @@ def _diff_metadata(diff_stats: FrameDiffStats | None) -> dict[str, Any] | None:
         "bbox": diff_stats.bbox,
         "color_changes": diff_stats.color_changes,
         "examples": diff_stats.examples,
+        "components": diff_stats.components,
         "meaningful": diff_stats.num_changes > 0,
     }
 
@@ -358,7 +471,7 @@ class ArcAgi3Env(BaseTextEnv):
         self.repeat_click_penalty = float(self.extras.get("repeat_click_penalty", -0.02))
         self.repeat_click_radius = int(self.extras.get("repeat_click_radius", 2))
         self.frame_observation_mode = str(self.extras.get("frame_observation_mode", "initial_full_then_diff"))
-        self.full_frame_interval = int(self.extras.get("full_frame_interval", 8))
+        self.full_frame_interval = int(self.extras.get("full_frame_interval", 0))
         self.patch_radius = int(self.extras.get("patch_radius", 4))
         self.max_diff_examples = int(self.extras.get("max_diff_examples", 32))
         self.max_full_frame_rows = self.extras.get("max_full_frame_rows")
@@ -560,6 +673,7 @@ class ArcAgi3Env(BaseTextEnv):
             diff = "frame_diff: initial"
             frame_lines = self._frame_observation_lines(
                 initial=initial,
+                previous_frame=None,
                 current_frame=current_frame,
                 diff_stats=None,
                 levels_completed=levels_completed,
@@ -572,6 +686,7 @@ class ArcAgi3Env(BaseTextEnv):
             action_effect = _action_effect_summary(diff_stats)
             frame_lines = self._frame_observation_lines(
                 initial=initial,
+                previous_frame=self.last_frame,
                 current_frame=current_frame,
                 diff_stats=diff_stats,
                 levels_completed=levels_completed,
@@ -609,6 +724,7 @@ class ArcAgi3Env(BaseTextEnv):
     def _frame_observation_lines(
         self,
         initial: bool,
+        previous_frame: Any,
         current_frame: Any,
         diff_stats: FrameDiffStats | None,
         levels_completed: int,
@@ -636,7 +752,7 @@ class ArcAgi3Env(BaseTextEnv):
         if mode == "full_every_turn":
             return frame_lines
         if diff_stats is not None and diff_stats.num_changes > 0:
-            frame_lines.append(_format_diff_patch(current_frame, diff_stats, radius=self.patch_radius))
+            frame_lines.append(_format_diff_patch(previous_frame, current_frame, diff_stats, radius=self.patch_radius))
         return frame_lines
 
     def _action_space_text(self) -> str:

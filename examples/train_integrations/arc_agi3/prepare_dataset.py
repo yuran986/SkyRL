@@ -12,7 +12,8 @@ DEFAULT_PROMPT = (
     "Respond with brief reasoning in <think>...</think>, then exactly one executable action in "
     "<action>...</action>. Keep <think> concise. The environment executes only the <action> tag. "
     "Observation fields: frame_diff compares the frame after your last action with the previous frame; "
-    "changed_patch is the current-frame crop around changed cells; use these to infer which clicks changed the game. "
+    "components split changed cells by connected region and before->after color change; "
+    "changed_patch_before/changed_patch/changed_patch_delta show local before/current/delta crops; use these to infer which clicks changed the game. "
     "Simple actions look like <action>ACTION1</action>. "
     'For coordinate clicks use JSON inside <action>, for example <action>{"action":"ACTION6","x":32,"y":32}</action>. '
     "Never output bare JSON outside <action>."
@@ -92,7 +93,7 @@ def main() -> None:
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
     parser.add_argument("--environments_dir", default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR"))
     parser.add_argument("--frame_observation_mode", default=os.getenv("ARC_AGI3_FRAME_OBSERVATION_MODE", "initial_full_then_diff"))
-    parser.add_argument("--full_frame_interval", type=int, default=int(os.getenv("ARC_AGI3_FULL_FRAME_INTERVAL", "8")))
+    parser.add_argument("--full_frame_interval", type=int, default=int(os.getenv("ARC_AGI3_FULL_FRAME_INTERVAL", "0")))
     parser.add_argument("--patch_radius", type=int, default=int(os.getenv("ARC_AGI3_PATCH_RADIUS", "4")))
     parser.add_argument("--max_diff_examples", type=int, default=int(os.getenv("ARC_AGI3_MAX_DIFF_EXAMPLES", "32")))
     parser.add_argument("--invalid_action_reward", type=float, default=float(os.getenv("ARC_AGI3_INVALID_ACTION_REWARD", "-0.1")))

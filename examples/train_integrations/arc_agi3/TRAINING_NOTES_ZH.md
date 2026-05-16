@@ -134,3 +134,23 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
 - rollout viewer 里点击轨迹是否从固定小区域扩展到有策略的搜索。
 
 若这版 reward 仍然只学到探索不学规则，再考虑加入小规模 SFT warm-up。SFT 数据必须是人工筛选或脚本生成的高质量轨迹，至少要覆盖合法坐标、观察 diff 后改变策略、避免重复无效点击这些行为。
+
+## Observation v3：structured diff
+
+`reward_v2` 跑完后发现模型主要学会制造固定局部 diff，而不是理解 diff。尤其后期 trajectory 会坍缩到固定坐标序列，`levels_completed/success/final_score` 仍为 0。这说明仅给整体 `frame_diff`、若干 changed examples 和 current-only `changed_patch` 不够清晰，模型容易把 `num_changes > 0` 当成奖励提示。
+
+当前 observation 已改成 structured diff：
+
+| 字段 | 含义 |
+| --- | --- |
+| `frame_diff.num_changes` | 上一步 action 后变化的 cell 数 |
+| `frame_diff.bbox` | 所有变化 cell 的整体 bbox，仅做粗定位 |
+| `frame_diff.colors` | 按颜色变化聚合的统计 |
+| `components` | 按“4 邻接连续区域 + 相同 before->after 颜色变化”拆分出的变化片段 |
+| `changed_patch_before` | changed bbox 附近的上一帧局部 patch |
+| `changed_patch` | changed bbox 附近的当前帧局部 patch |
+| `changed_patch_delta` | changed bbox 附近的 delta patch，`.` 是未变，hex 字符是变化后的颜色 |
+
+为了减少上下文噪声，`frame_diff` 文本不再输出全局 `examples=[...]`。这些 examples 仍保留在 rollout metadata 里，方便 viewer/debug，但不作为模型主 observation。默认 `full_frame_interval` 也从 `8` 改为 `0`：模型 initial 仍能看到一次完整 frame 和颜色 legend，后续 turn 默认只看 structured diff 与局部 patch，不周期性塞整张 64x64 frame。
+
+注意：`prepare_dataset.py` 会把 prompt 和 `full_frame_interval` 写进 parquet。若继续使用旧 `$HOME/data/arc_agi3/*.parquet`，可能仍然是旧 prompt 和 `full_frame_interval=8`。下一次训练前需要重新生成数据。

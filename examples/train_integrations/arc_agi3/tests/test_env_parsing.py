@@ -7,6 +7,9 @@ from examples.train_integrations.arc_agi3.env import (
     FrameDiffStats,
     ParsedAction,
     _action_effect_summary,
+    _diff_stats,
+    _diff_summary,
+    _format_diff_patch,
     parse_model_action,
 )
 
@@ -62,6 +65,77 @@ def test_action_effect_summary_marks_changed_area():
     diff = FrameDiffStats(num_changes=8, bbox=(1, 2, 3, 4), color_changes=[], examples=[])
 
     assert _action_effect_summary(diff) == "last_action_effect=CHANGED num_changes=8 bbox=(1,2)-(3,4)"
+
+
+def test_diff_stats_splits_components_by_region_and_color_change():
+    prev = [
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+    ]
+    cur = [
+        [2, 2, 1, 3, 1],
+        [2, 2, 1, 3, 1],
+        [1, 1, 1, 1, 1],
+        [2, 2, 1, 1, 1],
+    ]
+
+    diff = _diff_stats(prev, cur)
+
+    assert diff is not None
+    assert diff.num_changes == 8
+    assert diff.bbox == (0, 0, 3, 3)
+    assert [(item["size"], item["bbox"], item["before"], item["after"]) for item in diff.components] == [
+        (4, (0, 0, 1, 1), 1, 2),
+        (2, (0, 3, 1, 3), 1, 2),
+        (2, (3, 0, 3, 1), 1, 3),
+    ]
+
+
+def test_diff_summary_includes_component_summary():
+    diff = FrameDiffStats(
+        num_changes=2,
+        bbox=(0, 0, 1, 0),
+        color_changes=[(1, 2, 2)],
+        examples=[{"x": 0, "y": 0, "before": 1, "after": 2}],
+        components=[
+            {
+                "id": 0,
+                "size": 2,
+                "bbox": (0, 0, 1, 0),
+                "center": (0.5, 0.0),
+                "before": 1,
+                "after": 2,
+                "examples": [],
+            }
+        ],
+    )
+
+    summary = _diff_summary(diff)
+
+    assert "components=" in summary
+    assert "'change': 'off-white->light gray'" in summary
+
+
+def test_format_diff_patch_includes_before_after_and_delta():
+    prev = [
+        [1, 1, 1],
+        [1, 1, 1],
+    ]
+    cur = [
+        [1, 2, 1],
+        [1, 2, 1],
+    ]
+    diff = _diff_stats(prev, cur)
+
+    patch = _format_diff_patch(prev, cur, diff, radius=0)
+
+    assert "changed_patch_before: x=1..1 y=0..1" in patch
+    assert "changed_patch: x=1..1 y=0..1" in patch
+    assert "changed_patch_delta: x=1..1 y=0..1" in patch
+    assert "encoding=changed_after_hex_unchanged_dot" in patch
+    assert "y00: 2" in patch
 
 
 def _reward_env():

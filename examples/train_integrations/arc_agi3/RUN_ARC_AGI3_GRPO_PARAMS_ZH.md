@@ -122,7 +122,17 @@ policy update 的 mini-batch 大小。越大吞吐更好但显存更高。当前
 `MAX_INPUT_LENGTH`  
 同时传给 `trainer.max_prompt_length` 和 `generator.max_input_length`。对 ARC-AGI-3 来说，真正关键的是 `generator.max_input_length`：它限制多轮 conversation 的累计上下文，包括初始 prompt、初始 frame、历史 `<think>/<action>` 和 observation/diff。`MAX_TURNS` 只是轮数上限；如果 rollout 的 `stop_reason=length`，会在达到 10 轮前提前停止。当前正式训练建议 16384 起步；如果仍然卡长度，再切到 32k 最大上下文实验档。
 
-observation 里的 `frame_diff` 表示“上一个 action 执行后，当前 frame 相比上一帧发生了什么变化”；`num_changes` 是变化 cell 数，`bbox` 是变化区域，`examples` 是若干变化 cell，`changed_patch` 是变化区域附近的当前 frame 裁剪。当前 prompt 和初始 observation 都会说明这些字段，避免模型把 diff 当成无意义日志。
+observation 里的 `frame_diff` 表示“上一个 action 执行后，当前 frame 相比上一帧发生了什么变化”。当前是 structured diff 格式：
+
+- `num_changes`：变化 cell 数。
+- `bbox`：所有变化 cell 的整体包围框，只作为粗定位。
+- `colors`：按颜色变化聚合，例如 `blue->red:36`。
+- `components`：按“空间 4 邻接连通，且 before->after 颜色变化相同”拆出的变化区域。每个 component 包含 `id`、`size`、`bbox`、`center` 和 `change`。这比整体 bbox 更适合模型判断到底是哪几片区域变了。
+- `changed_patch_before`：变化区域附近的上一帧局部 patch。
+- `changed_patch`：变化区域附近的当前帧局部 patch。
+- `changed_patch_delta`：同一局部区域的 delta patch，`.` 表示未变，hex 字符表示变化后的颜色。
+
+全量 frame 默认只在 initial observation 给一次；`full_frame_interval=0` 表示后续不周期性刷新整张 frame，避免 64x64 hex grid 占用上下文并干扰模型读 diff。若旧 parquet 里已经写入 `full_frame_interval=8` 或旧 prompt，需要重新运行 `prepare_dataset.py`，否则训练仍会使用旧 observation 设置。
 
 `MAX_GENERATE_LENGTH`  
 每轮 action 生成上限，传给 train/eval sampling params。当前输出是 `<think>` 加一个 `<action>`；正式训练可以用 192，给模型保留一定 reasoning 空间。过大则会让单轮输出变长并更快触发 `stop_reason=length`。
