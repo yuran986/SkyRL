@@ -776,6 +776,13 @@ def _html_template(title: str, data_json: str) -> str:
       }}));
       detail.append(overview);
 
+      if (row.initial_messages) {{
+        const initialMessages = section('Initial Messages');
+        const initialBody = initialMessages.querySelector('.section-body');
+        initialBody.append(labelPre('Initial input before turn 1', text(row.initial_messages)));
+        detail.append(initialMessages);
+      }}
+
       const curves = renderCurveSection();
       if (curves) detail.append(curves);
 
