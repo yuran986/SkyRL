@@ -7,10 +7,19 @@ set -x
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+_PRESET_ARC_AGI3_FULL_FRAME_INTERVAL="${ARC_AGI3_FULL_FRAME_INTERVAL-}"
+_PRESET_ARC_AGI3_FULL_FRAME_INTERVAL_SET=0
+if [ "${ARC_AGI3_FULL_FRAME_INTERVAL+x}" = "x" ]; then
+  _PRESET_ARC_AGI3_FULL_FRAME_INTERVAL_SET=1
+fi
+
 if [ -f .env ]; then
   set -a
   source .env
   set +a
+fi
+if [ "$_PRESET_ARC_AGI3_FULL_FRAME_INTERVAL_SET" = "1" ]; then
+  export ARC_AGI3_FULL_FRAME_INTERVAL="$_PRESET_ARC_AGI3_FULL_FRAME_INTERVAL"
 fi
 
 : "${DATA_DIR:="$HOME/data/arc_agi3"}"
