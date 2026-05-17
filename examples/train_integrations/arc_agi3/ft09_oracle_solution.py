@@ -1,15 +1,15 @@
-"""Oracle solver for the local ft09 environment.
+"""Pure-action oracle attempt for the local ft09 environment.
 
-The public ACTION6 rules solve the early levels directly. The local ft09 source also contains
-isolated NTi center-color constraints that cannot be reached by public clicks, so the default
-mode applies an explicit internal fix for those source-level constraints before advancing.
-Use --legal-only to fail instead of applying that internal fix.
+The solver is allowed to inspect the source-level rules, but it only changes the game by
+issuing public ACTION6 clicks. It models each level as a modular linear system over block
+colors and fails explicitly if the current local source has no legal action plan.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +29,12 @@ CHECKS = (
     (2, 0, -1, 1),
     (2, 1, 0, 1),
     (2, 2, 1, 1),
+)
+
+NEIGHBOR_OFFSETS = (
+    ((-1, -1), (0, -1), (1, -1)),
+    ((-1, 0), (0, 0), (1, 0)),
+    ((-1, 1), (0, 1), (1, 1)),
 )
 
 
@@ -189,43 +195,130 @@ def choose_desired_colors(game: Any) -> dict[tuple[int, int], int]:
     return desired
 
 
-def nti_effects(sprite: Any) -> list[tuple[int, int]]:
+def click_effects(
+    game: Any,
+    sprite: Any,
+    blocks: dict[tuple[int, int], Any],
+) -> list[tuple[int, int]]:
+    if has_tag(sprite, "NTi"):
+        effect_pattern = [
+            [1 if int(sprite.pixels[row][col]) == 6 else 0 for col in range(3)]
+            for row in range(3)
+        ]
+    else:
+        effect_pattern = game.irw
+
     effects: list[tuple[int, int]] = []
     for row in range(3):
         for col in range(3):
-            if int(sprite.pixels[row][col]) == 6:
-                effects.append((int(sprite.x) + (col - 1) * 4, int(sprite.y) + (row - 1) * 4))
+            if int(effect_pattern[row][col]) != 1:
+                continue
+            dx, dy = NEIGHBOR_OFFSETS[row][col]
+            coord = (int(sprite.x) + dx * 4, int(sprite.y) + dy * 4)
+            if coord in blocks:
+                effects.append(coord)
     return effects
 
 
-def solve_mod2(rows: list[int], rhs: list[int]) -> list[int] | None:
-    matrix = [[rows[i], rhs[i] & 1] for i in range(len(rows))]
-    num_vars = max((row.bit_length() for row in rows), default=0)
+def inverse_mod(value: int, modulus: int) -> int:
+    value %= modulus
+    for candidate in range(modulus):
+        if (value * candidate) % modulus == 1:
+            return candidate
+    raise ValueError(f"{value} has no inverse modulo {modulus}")
+
+
+def solve_modular_linear(
+    rows: list[list[int]],
+    rhs: list[int],
+    modulus: int,
+) -> list[int] | None:
+    if not rows:
+        return []
+
+    num_vars = len(rows[0])
+    matrix = [
+        [value % modulus for value in rows[index]] + [rhs[index] % modulus]
+        for index in range(len(rows))
+    ]
     pivots: list[tuple[int, int]] = []
     pivot_row = 0
 
     for col in range(num_vars):
         selected = next(
-            (row for row in range(pivot_row, len(matrix)) if (matrix[row][0] >> col) & 1),
+            (
+                row
+                for row in range(pivot_row, len(matrix))
+                if matrix[row][col] % modulus
+                and math.gcd(matrix[row][col] % modulus, modulus) == 1
+            ),
             None,
         )
         if selected is None:
             continue
         matrix[pivot_row], matrix[selected] = matrix[selected], matrix[pivot_row]
+        inverse = inverse_mod(matrix[pivot_row][col], modulus)
+        matrix[pivot_row] = [(value * inverse) % modulus for value in matrix[pivot_row]]
+
         for row in range(len(matrix)):
-            if row != pivot_row and ((matrix[row][0] >> col) & 1):
-                matrix[row][0] ^= matrix[pivot_row][0]
-                matrix[row][1] ^= matrix[pivot_row][1]
+            factor = matrix[row][col] % modulus
+            if row != pivot_row and factor:
+                matrix[row] = [
+                    (matrix[row][index] - factor * matrix[pivot_row][index]) % modulus
+                    for index in range(num_vars + 1)
+                ]
         pivots.append((pivot_row, col))
         pivot_row += 1
 
-    if any(mask == 0 and value for mask, value in matrix):
+    if any(
+        all(value % modulus == 0 for value in row[:num_vars]) and row[num_vars]
+        for row in matrix
+    ):
         return None
 
     solution = [0] * num_vars
     for row, col in pivots:
-        solution[col] = matrix[row][1]
+        solution[col] = matrix[row][num_vars] % modulus
     return solution
+
+
+def solve_click_plan(game: Any) -> list[tuple[Any, int]]:
+    blocks = get_blocks(game)
+    variables = list(blocks.values())
+    colors = [int(color) for color in game.gqb]
+    color_index = {color: index for index, color in enumerate(colors)}
+    constraints = allowed_colors(game)
+    desired = choose_desired_colors(game)
+
+    rows: list[list[int]] = []
+    rhs: list[int] = []
+    for coord in constraints:
+        rows.append(
+            [
+                1 if coord in click_effects(game, sprite, blocks) else 0
+                for sprite in variables
+            ]
+        )
+        rhs.append(
+            (color_index[desired[coord]] - color_index[center_color(blocks[coord])])
+            % len(colors)
+        )
+
+    solution = solve_modular_linear(rows, rhs, len(colors))
+    if solution is None:
+        raise RuntimeError(
+            f"Level {game.current_level.name} has no legal ACTION6 plan under the "
+            "source-defined click effects and target constraints"
+        )
+
+    plan = [
+        (sprite, count % len(colors))
+        for sprite, count in zip(variables, solution)
+        if count % len(colors)
+    ]
+    if not plan and game.cgj() and variables:
+        plan = [(variables[0], len(colors))]
+    return plan
 
 
 def execute_click(
@@ -261,122 +354,38 @@ def execute_click(
     return advanced
 
 
-def apply_unreachable_internal_fixes(
-    env: Any,
-    desired: dict[tuple[int, int], int],
-    verbose: bool,
-    trace: list[dict[str, Any]] | None = None,
-) -> None:
-    game = env._game
-    blocks = get_blocks(game)
-    for coord, wanted in desired.items():
-        sprite = blocks.get(coord)
-        if sprite is None or not has_tag(sprite, "NTi"):
-            continue
-        if center_color(sprite) == wanted:
-            continue
-        old = center_color(sprite)
-        sprite.color_remap(old, wanted)
-        record_trace_event(
-            trace,
-            env,
-            "internal_fix",
-            reason="unreachable_nti_center_constraint",
-            sprite_name=sprite.name,
-            grid={"x": int(sprite.x), "y": int(sprite.y)},
-            old_center=old,
-            new_center=wanted,
-        )
-        if verbose:
-            print(
-                f"internal_fix: {sprite.name}@grid=({sprite.x},{sprite.y}) "
-                f"center {old}->{wanted}"
-            )
-
-
 def solve_current_level(
     env: Any,
     *,
-    legal_only: bool,
     verbose: bool,
     trace: list[dict[str, Any]] | None = None,
 ) -> None:
     game = env._game
-    desired = choose_desired_colors(game)
-    blocks = get_blocks(game)
-    colors = [int(color) for color in game.gqb]
-    color_index = {color: index for index, color in enumerate(colors)}
+    before_level = int(game.level_index)
+    plan = solve_click_plan(game)
 
     if verbose:
+        planned_clicks = sum(count for _, count in plan)
         print(
             f"level={game.level_index} name={game.current_level.name} "
-            f"colors={colors} constrained_blocks={len(desired)}"
+            f"colors={[int(color) for color in game.gqb]} planned_clicks={planned_clicks}"
         )
 
-    nti_blocks = game.current_level.get_sprites_by_tag("NTi")
-    constrained_nti = [
-        coord for coord in desired if coord in blocks and has_tag(blocks[coord], "NTi")
-    ]
-
-    if constrained_nti:
-        if len(colors) != 2:
-            raise RuntimeError("NTi linear solve currently expects two-color levels")
-        rows: list[int] = []
-        rhs: list[int] = []
-        for coord in constrained_nti:
-            row = 0
-            for index, sprite in enumerate(nti_blocks):
-                if coord in nti_effects(sprite):
-                    row |= 1 << index
-            rows.append(row)
-            rhs.append((color_index[desired[coord]] - color_index[center_color(blocks[coord])]) % 2)
-
-        solution = solve_mod2(rows, rhs)
-        if solution is None:
-            if legal_only:
-                raise RuntimeError(
-                    f"Level {game.current_level.name} has unreachable NTi constraints "
-                    "under public ACTION6 clicks"
-                )
-            apply_unreachable_internal_fixes(env, desired, verbose, trace)
-        else:
-            for bit, sprite in zip(solution, nti_blocks):
-                if bit and execute_click(env, sprite, "nti_toggle", verbose, trace):
-                    return
-
-    for coord, wanted in list(desired.items()):
-        game = env._game
-        blocks = get_blocks(game)
-        sprite = blocks.get(coord)
-        if sprite is None or not has_tag(sprite, "Hkx"):
-            continue
-
-        for _ in range(len(game.gqb) + 1):
-            if center_color(sprite) == wanted:
-                break
-            if execute_click(env, sprite, "hkx_toggle", verbose, trace):
+    for sprite, count in plan:
+        for _ in range(count):
+            if execute_click(env, sprite, "planned_legal_click", verbose, trace):
                 return
-            game = env._game
-            sprite = get_blocks(game)[coord]
 
-        if center_color(sprite) != wanted:
-            raise RuntimeError(
-                f"Failed to set {sprite.name}@{coord} to {wanted}; current={center_color(sprite)}"
-            )
-
-    game = env._game
-    if game.cgj():
-        if verbose:
-            print(f"internal_advance: level={game.level_index} name={game.current_level.name}")
-        game.next_level()
-        record_trace_event(trace, env, "internal_advance", reason="level_constraints_satisfied")
+    if int(env._game.level_index) == before_level and env._game._state.name != "WIN":
+        raise RuntimeError(
+            f"Legal click plan for level {game.current_level.name} did not advance the level"
+        )
 
 
 def run_ft09_solution(
     *,
     environments_dir: str,
     operation_mode: str,
-    legal_only: bool,
     verbose: bool,
     max_level_attempts: int,
     trace: list[dict[str, Any]] | None = None,
@@ -395,7 +404,11 @@ def run_ft09_solution(
                 "levels_completed": max(int(getattr(response, "levels_completed", 0)), 6),
                 "last_response": response,
             }
-        solve_current_level(env, legal_only=legal_only, verbose=verbose, trace=trace)
+        try:
+            solve_current_level(env, verbose=verbose, trace=trace)
+        except Exception as exc:
+            record_trace_event(trace, env, "failure", reason=str(exc))
+            raise
 
     if env._game._state.name == "WIN":
         record_trace_event(trace, env, "final", reason="game_finished")
@@ -412,29 +425,31 @@ def run_ft09_solution(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Deterministic oracle solution for ARC-AGI-3 ft09.")
+    parser = argparse.ArgumentParser(
+        description="Pure-action oracle attempt for ARC-AGI-3 ft09."
+    )
     parser.add_argument(
         "--environments_dir",
         default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR", "/home/users/yz1051/rlm/environment_files"),
     )
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
-    parser.add_argument("--legal-only", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--max-level-attempts", type=int, default=16)
     parser.add_argument("--trace-jsonl", help="Optional path for a step-by-step oracle trace.")
     args = parser.parse_args()
 
     trace: list[dict[str, Any]] | None = [] if args.trace_jsonl else None
-    final_result = run_ft09_solution(
-        environments_dir=args.environments_dir,
-        operation_mode=args.operation_mode,
-        legal_only=args.legal_only,
-        verbose=not args.quiet,
-        max_level_attempts=args.max_level_attempts,
-        trace=trace,
-    )
-    if args.trace_jsonl and trace is not None:
-        write_trace_jsonl(trace, args.trace_jsonl)
+    try:
+        final_result = run_ft09_solution(
+            environments_dir=args.environments_dir,
+            operation_mode=args.operation_mode,
+            verbose=not args.quiet,
+            max_level_attempts=args.max_level_attempts,
+            trace=trace,
+        )
+    finally:
+        if args.trace_jsonl and trace is not None:
+            write_trace_jsonl(trace, args.trace_jsonl)
     print(
         f"final_state={final_result['state']} "
         f"levels_completed={final_result['levels_completed']}"

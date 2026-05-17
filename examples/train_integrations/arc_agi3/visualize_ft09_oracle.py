@@ -57,14 +57,19 @@ def build_trace(args: argparse.Namespace) -> list[dict[str, Any]]:
         return read_trace_jsonl(Path(args.trace_jsonl))
 
     trace: list[dict[str, Any]] = []
-    run_ft09_solution(
-        environments_dir=args.environments_dir,
-        operation_mode=args.operation_mode,
-        legal_only=args.legal_only,
-        verbose=not args.quiet,
-        max_level_attempts=args.max_level_attempts,
-        trace=trace,
-    )
+    try:
+        run_ft09_solution(
+            environments_dir=args.environments_dir,
+            operation_mode=args.operation_mode,
+            verbose=not args.quiet,
+            max_level_attempts=args.max_level_attempts,
+            trace=trace,
+        )
+    except RuntimeError as exc:
+        if not trace:
+            raise
+        if not args.quiet:
+            print(f"oracle stopped before WIN: {exc}")
     if args.trace_jsonl:
         write_trace_jsonl(trace, args.trace_jsonl)
     return trace
@@ -207,7 +212,7 @@ def html_document(events: list[dict[str, Any]], title: str) -> str:
 <body>
   <header>
     <h1>{safe_title}</h1>
-    <div class="subtitle">Step through the deterministic ft09 oracle: legal clicks, internal fixes, level advances, and exact frame snapshots.</div>
+    <div class="subtitle">Step through the deterministic ft09 oracle attempt: legal clicks, level advances, and exact frame snapshots.</div>
   </header>
   <main class="layout">
     <aside class="panel timeline" id="timeline"></aside>
@@ -250,8 +255,8 @@ def html_document(events: list[dict[str, Any]], title: str) -> str:
     }}
 
     function eventClass(event) {{
-      if (event.event === "internal_fix") return "fix";
       if (event.event === "click") return "click";
+      if (event.event === "failure") return "fix";
       if (event.event === "final") return "good";
       return "";
     }}
@@ -312,13 +317,6 @@ def html_document(events: list[dict[str, Any]], title: str) -> str:
         ctx.moveTo(x + cellW / 2, y - 18);
         ctx.lineTo(x + cellW / 2, y + 28);
         ctx.stroke();
-      }}
-      if (event.grid && event.event === "internal_fix") {{
-        const x = (event.grid.x * 2) * (canvas.width / 64);
-        const y = (event.grid.y * 2) * (canvas.height / 64);
-        ctx.strokeStyle = "#ff6b6b";
-        ctx.lineWidth = 5;
-        ctx.strokeRect(x, y, 60, 60);
       }}
     }}
 
@@ -388,7 +386,6 @@ def main() -> None:
         default=os.getenv("ARC_AGI3_ENVIRONMENTS_DIR", "/home/users/yz1051/rlm/environment_files"),
     )
     parser.add_argument("--operation_mode", default=os.getenv("OPERATION_MODE", "OFFLINE"))
-    parser.add_argument("--legal-only", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--max-level-attempts", type=int, default=16)
     parser.add_argument("--trace-jsonl", help="Read/write the oracle trace JSONL at this path.")
