@@ -7,25 +7,43 @@ GRPO 或评估流程。
 
 结论先行：不要把单条 oracle trajectory cloning 当成主 warm-up。更合适的结构是：
 
-1. tiny SFT 只负责 action 输出格式和合法坐标先验，建议先训 50 step。
-2. 主 warm-up 使用 oracle-distance RL，让模型可以探索、换 action 顺序、从非 oracle prefix
+1. 默认跳过 tiny SFT，直接做 oracle-distance RL warm-up。
+2. tiny SFT 只作为 fallback：当换 base model 或 prompt 后 action 格式明显不稳时再启用。
+3. 主 warm-up 使用 oracle-distance RL，让模型可以探索、换 action 顺序、从非 oracle prefix
    的状态恢复。
 
 ## 目标
 
 - 新增一条与现有正式 GRPO 清晰分离的 ft09 oracle warm-up 路径。
-- tiny SFT label 来自 ft09 oracle 的可执行 `<action>...</action>`，但只用于格式 warm-up。
-- oracle 不提供可监督的 thinking，因此训练时保留输出协议，但反传只训练 action token。
 - oracle-distance RL 不要求 action 顺序等于 oracle trajectory，只奖励让 oracle plan 变短、
   level advance、通关和保持合法动作。
+- tiny SFT 作为可选 fallback，label 来自 ft09 oracle 的可执行 `<action>...</action>`，只用于
+  格式 warm-up。oracle 不提供可监督的 thinking，因此启用 SFT 时反传只训练 action token。
 - 生成的数据、启动脚本、测试和说明都放在 `examples/train_integrations/arc_agi3/sft_warmup/`
   下，避免污染现有 `run_arc_agi3_grpo.sh` 和 GRPO 数据准备逻辑。
 
-## 当前代码约束
+## 当前日志判断
 
-现有通用 SFT 入口是 `python -m skyrl.train.main_sft`，核心实现位于
-`skyrl/train/sft_trainer.py`。它当前支持 Alpaca 格式和 chat `messages` 格式，但 tokenization
-只返回 `num_actions`，collate 后的 `loss_mask` 默认覆盖最后 `num_actions` 个 token。
+已有 ARC-AGI-3 rollout 说明，当前主要问题不是 `<think>/<action>` 格式，而是策略没有学到
+ft09 规则、容易坍缩到固定点击序列。
+
+抽查结果：
+
+| run / step | valid action | 格式观察 |
+| --- | ---: | --- |
+| `arc_agi3_formal_20260504_005642` step 1-12 | 多数 step 在 90%+ | 基本都有 `<think>` 和 `<action>`；step 12 有少量 `<Action>` 大写、JSON/坐标错误 |
+| `arc_agi3_structured_diff_11636395` step 1 | `136/157` | 初期仍有 JSON 坏格式、缺 x/y、`NO_OP` |
+| `arc_agi3_structured_diff_11636395` step 50/100/150/200 | `160/160` | action 格式稳定，坐标合法；很多输出直接是 `<action>...</action>` |
+
+因此 tiny SFT 不是默认必要步骤。它能解决的是格式和坐标先验，但现有 RL 已经能较快学稳这些。
+默认应把工程投入放在 oracle-distance RL reward 上。
+
+## 可选 SFT 代码约束
+
+如果后续决定启用 tiny SFT，需要注意现有通用 SFT 入口是 `python -m skyrl.train.main_sft`，核心
+实现位于 `skyrl/train/sft_trainer.py`。它当前支持 Alpaca 格式和 chat `messages` 格式，但
+tokenization 只返回 `num_actions`，collate 后的 `loss_mask` 默认覆盖最后 `num_actions` 个
+token。
 
 这个机制适合“训练完整 assistant 回复”，但不适合直接表达：
 
@@ -38,19 +56,19 @@ GRPO 或评估流程。
 chat template 结尾 token 的位置，容易把 `eos` / assistant 结束 token 算进去，或者漏掉
 `<action>` 开头 token。
 
-因此 warm-up 需要显式 token-level action mask。
+因此如果启用 tiny SFT，需要显式 token-level action mask。
 
 ## 推荐目录结构
 
 ```text
 examples/train_integrations/arc_agi3/sft_warmup/
   WARMUP_SFT_PLAN_ZH.md
-  prepare_ft09_oracle_sft.py
   oracle_distance_reward.py
-  run_ft09_oracle_sft_fsdp.sh
   run_ft09_oracle_distance_grpo.sh
-  run_ft09_oracle_sft.slurm
   run_ft09_oracle_distance_grpo.slurm
+  prepare_ft09_oracle_sft.py           # optional fallback
+  run_ft09_oracle_sft_fsdp.sh          # optional fallback
+  run_ft09_oracle_sft.slurm            # optional fallback
   README_ZH.md
 ```
 
@@ -61,8 +79,8 @@ examples/train_integrations/arc_agi3/sft_warmup/entrypoints/
   main_ft09_oracle_sft.py
 ```
 
-我的建议是优先复用 `skyrl.train.main_sft`，只对通用 SFT tokenization 增加一个向后兼容的
-`loss_mask` 输入能力；ARC-AGI-3 相关逻辑仍然留在 `sft_warmup/`。
+SFT fallback 若要实现，建议复用 `skyrl.train.main_sft`，只对通用 SFT tokenization 增加一个
+向后兼容的 `loss_mask` 输入能力；ARC-AGI-3 相关逻辑仍然留在 `sft_warmup/`。
 
 ## 为什么不做粗暴 trajectory SFT
 
@@ -75,13 +93,24 @@ cloning 一个 canonical path。这个做法有两个问题：
   产生部分完成的中间状态。单条 trajectory SFT 对这些 off-trajectory 状态没有 recovery
   先验。
 
-因此 SFT 的定位应该降级为“格式和动作协议 warm-up”，策略学习交给 RL。若后续仍想扩大
-SFT 数据，也应生成多 prefix、多随机点击顺序、多恢复状态的 oracle-guided state-action
-dataset，而不是只复制一条固定轨迹。
+因此 SFT 最多只能定位为“格式和动作协议 fallback”，策略学习交给 RL。若后续仍想扩大 SFT
+数据，也应生成多 prefix、多随机点击顺序、多恢复状态的 oracle-guided state-action dataset，
+而不是只复制一条固定轨迹。
 
-## Tiny SFT 数据生成方案
+## Tiny SFT Fallback 条件
 
-新增 `prepare_ft09_oracle_sft.py`，职责是把 oracle trace 转为少量 SFT JSONL/Parquet：
+默认不跑 tiny SFT。只有满足以下任一条件时再启用：
+
+- 换了 base model 后，invalid action 长期高于 5%-10%。
+- 大量输出缺 `<action>`、裸 JSON、大小写错误标签或非法 JSON。
+- 坐标边界明显不稳，例如频繁输出 `x=64`、`y=64` 或缺 x/y。
+- 需要快速验证 action-only loss mask 管线，而不是为了提升策略能力。
+
+如果启用，建议最多 `num_steps=50`；训练目标仍然只是格式，不用它学习 ft09 解法。
+
+## Tiny SFT Fallback 数据生成
+
+可选新增 `prepare_ft09_oracle_sft.py`，职责是把 oracle trace 转为少量 SFT JSONL/Parquet：
 
 1. 调用 `run_ft09_solution(..., trace=[])`，复用 oracle 的 step-by-step trace。
 2. 从 trace 中抽取 `event == "click"` 的记录。
@@ -93,9 +122,9 @@ dataset，而不是只复制一条固定轨迹。
      `advanced_level` 等，方便审计。
 4. 每一步点击之后，把 environment observation 追加到下一条样本的上下文里，让 SFT 看到与
    GRPO 一致的多轮状态转移。
-5. 第一版只保留 canonical trace 即可，因为它不是主策略训练数据；后续可增加
+5. fallback 第一版只保留 canonical trace 即可，因为它不是主策略训练数据；后续可增加
    `--shuffle-commutable-clicks`、`--recovery-prefixes` 和 `--max-context-turns`，但不是启动
-   warm-up 的 blocker。
+   oracle-distance RL 的 blocker。
 
 数据格式建议采用 chat 格式 JSONL：
 
@@ -116,9 +145,9 @@ dataset，而不是只复制一条固定轨迹。
 turn，但只有最后一条 assistant message 的 action span 有 loss。这样正好贴合当前
 `SFTTrainer` 的“最后 assistant 回复”训练假设。
 
-## Tiny SFT 训练规模
+## Tiny SFT Fallback 训练规模
 
-建议 first pass 使用 `num_steps=50`。这个规模的目的不是让模型记住 ft09 解法，而是快速压低
+如果启用 tiny SFT fallback，建议 first pass 使用 `num_steps=50`。这个规模的目的不是让模型记住 ft09 解法，而是快速压低
 格式错误和非法坐标：
 
 - 学会稳定输出 `<action>{"action":"ACTION6","x":...,"y":...}</action>`。
@@ -141,13 +170,13 @@ effective_epochs = num_steps * global_batch_size / num_train_examples
 | 8 | 5.33 epoch |
 | 16 | 10.67 epoch |
 
-推荐先用 `batch_size=4` 或 `batch_size=8`。如果只生成 canonical 75 条样本，50 step 已经是
+fallback 推荐先用 `batch_size=4` 或 `batch_size=8`。如果只生成 canonical 75 条样本，50 step 已经是
 多 epoch 训练；这正符合 tiny SFT 的定位，但不应继续加大步数。若后续通过随机顺序和 recovery
 prefix 把数据扩到 300 条样本，则 `batch_size=8, num_steps=50` 约为 1.33 epoch。
 
 ## Action-only loss mask 方案
 
-新增或扩展一个 tokenization helper，例如：
+仅在启用 tiny SFT fallback 时需要新增或扩展一个 tokenization helper，例如：
 
 ```python
 tokenize_chat_example_with_action_loss(
@@ -185,9 +214,9 @@ collate 需要支持两种模式：
 FSDP/Megatron worker 当前的 `log_probs[:, -num_actions - 1 : -1]` / `log_probs[:, -num_actions:]`
 切片方式兼容。
 
-## 训练入口方案
+## Tiny SFT Fallback 入口方案
 
-新增 `run_ft09_oracle_sft_fsdp.sh`，默认走单/少 GPU FSDP warm-up：
+可选新增 `run_ft09_oracle_sft_fsdp.sh`，默认走单/少 GPU FSDP fallback：
 
 ```bash
 DATA_PATH=$HOME/data/arc_agi3_sft/ft09_oracle_train.jsonl
@@ -212,13 +241,13 @@ dataset_data_files: str | list[str] | None = None
 - `dataset_data_files` 为空：保持现有 `load_dataset(dataset_name, split=dataset_split)`。
 - `dataset_data_files` 非空：调用 `load_dataset(dataset_name, data_files=dataset_data_files, split=dataset_split)`。
 
-不建议把 warm-up 挂到 `main_arc_agi3.py`，因为那条入口是 PPO/GRPO experiment，包含
+不建议把 SFT fallback 挂到 `main_arc_agi3.py`，因为那条入口是 PPO/GRPO experiment，包含
 environment、generator、ref model 和 rollout 相关配置；SFT 不需要这些组件。
 
 ## Oracle-distance RL Warm-up
 
-tiny SFT 之后，主 warm-up 建议走 RL，而不是继续扩大 trajectory SFT。核心是给当前 game
-state 定义一个 oracle potential：
+默认直接从 base model 或当前最佳 checkpoint 启动 oracle-distance RL warm-up。核心是给当前
+game state 定义一个 oracle potential：
 
 ```text
 V_oracle(state) = 当前状态下 oracle 到通关还需要的最少/计划点击数
@@ -256,7 +285,14 @@ reward_oracle_progress = V_oracle(before) - V_oracle(after)
 
 ## 与正式 GRPO 的衔接
 
-SFT warm-up 结束后，oracle-distance GRPO 先把 `MODEL_PATH` 指向 tiny SFT checkpoint：
+默认路径是从 base model 或已有 checkpoint 直接启动 oracle-distance GRPO：
+
+```bash
+MODEL_PATH=Qwen/Qwen2.5-3B-Instruct \
+bash examples/train_integrations/arc_agi3/sft_warmup/run_ft09_oracle_distance_grpo.sh ...
+```
+
+如果触发了 tiny SFT fallback，再把 `MODEL_PATH` 指向 tiny SFT checkpoint：
 
 ```bash
 MODEL_PATH=/usr/project/xtmp/yz1051/ckpts/arc_agi3_ft09_oracle_sft/global_step_N/policy \
@@ -277,12 +313,12 @@ bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh ...
 
 新增或扩展 CPU 单测：
 
-- `tests/train/test_sft_tokenization.py`
+- `tests/train/test_sft_tokenization.py`（仅 SFT fallback 需要）
   - 构造 `<think>bad label</think><action>...</action>`，断言 think token 的 loss mask 全为 0。
   - 断言 `<action>`、JSON payload、`</action>` 对应 token 的 loss mask 为 1。
   - 断言 `num_actions == len(response_ids)`，不是 action-only token 数。
   - 断言旧 Alpaca/chat SFT 样本不受影响。
-- `examples/train_integrations/arc_agi3/tests/test_ft09_oracle_sft_data.py`
+- `examples/train_integrations/arc_agi3/tests/test_ft09_oracle_sft_data.py`（仅 SFT fallback 需要）
   - 用一小段 fake trace 测试 JSON action 序列化。
   - 断言每条样本最后 assistant message 只有一个 `<action>...</action>`。
   - 断言 metadata 包含 level、display 坐标和 oracle 来源。
@@ -303,10 +339,12 @@ uv run --extra dev --extra fsdp pytest -v \
 
 - 数据覆盖单一：当前 oracle 只覆盖 ft09，warm-up 可能让模型过拟合 ft09 action 模式。先把
   run name、checkpoint path 和 README 都标成 `ft09_oracle_*`，不要暗示泛化到全部 ARC-AGI-3。
-- 空 thinking 分布偏移：训练时 `<think></think>` 被 mask，不会直接惩罚模型生成其他 thinking。
-  后续 RL 仍可通过 rollout 学习 reasoning；SFT warm-up 只负责把 action 协议和合法点击坐标教稳。
-- 单轨迹 SFT 过拟合：50 step 已经可能覆盖 canonical trace 多个 epoch，因此不要把 SFT step
-  继续放大；策略学习用 oracle-distance RL。
+- 不必要 SFT 干扰：当前日志显示格式已经能学稳，默认跳过 SFT，避免用 canonical trace 给策略
+  注入不必要 bias。
+- 空 thinking 分布偏移：若启用 SFT，`<think></think>` 被 mask，不会直接惩罚模型生成其他
+  thinking；后续 RL 仍可通过 rollout 学习 reasoning。
+- 单轨迹 SFT 过拟合：若启用 fallback，50 step 已经可能覆盖 canonical trace 多个 epoch，因此
+  不要把 SFT step 继续放大；策略学习用 oracle-distance RL。
 - oracle reward 泄漏：oracle 使用源码级信息，只应作为 ft09 warm-up shaping，不应混进最终
   评测或宣称泛化能力。
 - token span 对齐：不要用字符串 split 后简单数 token 作为最终实现，必须用单测覆盖 Qwen chat
@@ -316,15 +354,14 @@ uv run --extra dev --extra fsdp pytest -v \
 
 ## 建议实施顺序
 
-1. 扩展 SFT tokenizer/collate，支持可选 `response_loss_mask`，保持旧数据格式兼容。
-2. 增加本地 JSONL `dataset_data_files` 加载能力。
-3. 新增 `sft_warmup/prepare_ft09_oracle_sft.py`，先生成可审计 JSONL。
-4. 新增 action-only mask 单测和 oracle SFT 数据单测。
-5. 新增 `run_ft09_oracle_sft_fsdp.sh` 和 `README_ZH.md`。
-6. 先做 1-2 step SFT smoke run，确认 loss 非零、checkpoint 正常保存、样本里的 think token 不参与 loss。
-7. 做 `num_steps=50` tiny SFT，记录数据条数、batch size 和 effective epoch。
-8. 新增 oracle-distance reward helper 和测试。
-9. 用 tiny SFT checkpoint 启动 oracle-distance GRPO warm-up，观察 invalid action rate、
-   `oracle_plan_len`、level completion。
-10. 用 oracle-distance warm-up checkpoint 启动原有正式 GRPO 脚本，比较 invalid action rate、
-    ft09 level completion 和是否出现固定轨迹过拟合。
+1. 新增 oracle-distance reward helper 和测试。
+2. 新增 `run_ft09_oracle_distance_grpo.sh`、Slurm 脚本和 `README_ZH.md`。
+3. 直接从 base model 或已有 checkpoint 做 oracle-distance GRPO smoke run，观察 invalid action
+   rate、`oracle_plan_len`、level completion。
+4. 若 invalid action 长期高于 5%-10%，再实现 tiny SFT fallback：
+   扩展 SFT tokenizer/collate、本地 JSONL 加载、`prepare_ft09_oracle_sft.py`、action-only mask
+   单测和 `run_ft09_oracle_sft_fsdp.sh`。
+5. 若启用 fallback，先做 1-2 step SFT smoke run，再做最多 `num_steps=50`，记录数据条数、
+   batch size 和 effective epoch。
+6. 用 oracle-distance warm-up checkpoint 启动原有正式 GRPO 脚本，比较 invalid action rate、
+   ft09 level completion 和是否出现固定轨迹过拟合。
