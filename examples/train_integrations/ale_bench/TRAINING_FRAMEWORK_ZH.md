@@ -40,6 +40,7 @@ SkyRL 的 dataset loader 会读取 parquet 行，并把除 `prompt` 和 `env_cla
     "judge_version": "202301",
     "score_scale": 1e9,
     "invalid_reward": -1.0,
+    "valid_reward_margin": 0.01,
 }
 ```
 
@@ -110,6 +111,14 @@ reward = signed_score / score_scale
 ```
 
 默认 `score_scale=1e9`，目的是把 AHC 原始大整数分数压到更适合 GRPO 的量级。若模型输出无法解析、编译失败且没有可计分结果、judge 调用异常，则返回 `invalid_reward`，默认 `-1.0`。
+
+为了避免 minimize 题里“很差但可计分的提交”因为取负后低于编译失败，环境会对所有可计分提交加一个 reward floor：
+
+```text
+reward = max(raw_reward, invalid_reward + valid_reward_margin)
+```
+
+默认 `valid_reward_margin=0.01`。这不是常数偏移，而是一个有效性约束：只要 ALE-Bench 能给出可计分结果，它就应该比无法评测的输出更好。GRPO 主要使用同一题多样本之间的相对优势，所以通常不需要为了正负号再额外加整体 offset。
 
 当 `max_steps > 1` 时可以使用 `reward_mode=improvement`。这时每轮 reward 只计算相对当前 best signed score 的正向改进：
 

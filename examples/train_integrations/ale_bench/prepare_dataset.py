@@ -45,6 +45,7 @@ def build_rows(args: argparse.Namespace, split: str, target_size: int) -> list[d
                 "num_workers": args.num_workers,
                 "score_scale": args.score_scale,
                 "invalid_reward": args.invalid_reward,
+                "valid_reward_margin": args.valid_reward_margin,
                 "reward_mode": args.reward_mode,
                 "statement_max_chars": args.statement_max_chars,
                 "tool_readme_max_chars": args.tool_readme_max_chars,
@@ -68,6 +69,9 @@ def main() -> None:
     parser.add_argument("--num_workers", type=int, default=int(os.getenv("ALE_BENCH_NUM_WORKERS", "1")))
     parser.add_argument("--score_scale", type=float, default=float(os.getenv("ALE_BENCH_SCORE_SCALE", "1000000000")))
     parser.add_argument("--invalid_reward", type=float, default=float(os.getenv("ALE_BENCH_INVALID_REWARD", "-1.0")))
+    parser.add_argument(
+        "--valid_reward_margin", type=float, default=float(os.getenv("ALE_BENCH_VALID_REWARD_MARGIN", "0.01"))
+    )
     parser.add_argument("--reward_mode", default=os.getenv("ALE_BENCH_REWARD_MODE", "score"))
     parser.add_argument(
         "--statement_max_chars", type=int, default=int(os.getenv("ALE_BENCH_STATEMENT_MAX_CHARS", "12000"))

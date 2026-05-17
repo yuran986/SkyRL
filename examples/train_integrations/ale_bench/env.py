@@ -120,6 +120,7 @@ class AleBenchEnv(BaseTextEnv):
         self.num_workers = int(self.extras.get("num_workers", os.getenv("ALE_BENCH_NUM_WORKERS", "1")))
         self.score_scale = float(self.extras.get("score_scale", 1.0e9))
         self.invalid_reward = float(self.extras.get("invalid_reward", -1.0))
+        self.valid_reward_margin = float(self.extras.get("valid_reward_margin", 0.01))
         self.reward_mode = str(self.extras.get("reward_mode", "score" if self.max_turns <= 1 else "improvement"))
         self.statement_max_chars = int(self.extras.get("statement_max_chars", 12000))
         self.tool_readme_max_chars = int(self.extras.get("tool_readme_max_chars", 5000))
@@ -232,6 +233,8 @@ class AleBenchEnv(BaseTextEnv):
                 "valid_submission": error is None,
                 "error": error,
                 "reward_mode": self.reward_mode,
+                "invalid_reward": self.invalid_reward,
+                "valid_reward_margin": self.valid_reward_margin,
                 "best_absolute_score": self.best_absolute_score,
                 "best_signed_score": self.best_signed_score,
                 "best_judge_result": self.best_judge_result,
@@ -254,8 +257,10 @@ class AleBenchEnv(BaseTextEnv):
 
     def _reward_from_signed_score(self, signed_score: float) -> float:
         if self.reward_mode == "improvement" and self.best_signed_score is not None:
-            return max(0.0, signed_score - self.best_signed_score) / self.score_scale
-        return signed_score / self.score_scale
+            reward = max(0.0, signed_score - self.best_signed_score) / self.score_scale
+        else:
+            reward = signed_score / self.score_scale
+        return max(reward, self.invalid_reward + self.valid_reward_margin)
 
     def _feedback_text(self, result: Any, error: str | None) -> str:
         if error is not None:
