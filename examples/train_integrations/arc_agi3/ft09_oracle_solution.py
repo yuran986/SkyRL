@@ -205,6 +205,7 @@ def click_effects(
             [1 if int(sprite.pixels[row][col]) == 6 else 0 for col in range(3)]
             for row in range(3)
         ]
+        effect_pattern[1][1] = 1
     else:
         effect_pattern = game.irw
 
