@@ -10,6 +10,12 @@ from typing import Any
 
 from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, ConversationType
 
+from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward import (
+    OracleDistanceInfo,
+    inspect_oracle_distance,
+    oracle_progress_delta,
+)
+
 
 ACTION_PATTERN = re.compile(r"\b(RESET|ACTION[1-7])\b", re.IGNORECASE)
 COORD_PATTERN = re.compile(r"\b([xy])\s*[:=]\s*(-?\d+)\b", re.IGNORECASE)
@@ -73,6 +79,14 @@ def _safe_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _to_plain(value: Any) -> Any:
@@ -470,6 +484,33 @@ class ArcAgi3Env(BaseTextEnv):
         self.max_meaningful_diff_changes = int(self.extras.get("max_meaningful_diff_changes", 512))
         self.repeat_click_penalty = float(self.extras.get("repeat_click_penalty", -0.02))
         self.repeat_click_radius = int(self.extras.get("repeat_click_radius", 2))
+        self.oracle_distance_reward_enabled = _truthy(
+            self.extras.get(
+                "oracle_distance_reward_enabled",
+                os.getenv("ARC_AGI3_ORACLE_DISTANCE_REWARD_ENABLED", "false"),
+            )
+        )
+        self.oracle_distance_reward = float(
+            self.extras.get("oracle_distance_reward", os.getenv("ARC_AGI3_ORACLE_DISTANCE_REWARD", "0.05"))
+        )
+        self.oracle_distance_valid_action_reward = float(
+            self.extras.get(
+                "oracle_distance_valid_action_reward",
+                os.getenv("ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD", "0.0"),
+            )
+        )
+        self.oracle_distance_unrecoverable_penalty = float(
+            self.extras.get(
+                "oracle_distance_unrecoverable_penalty",
+                os.getenv("ARC_AGI3_ORACLE_DISTANCE_UNRECOVERABLE_PENALTY", "-1.0"),
+            )
+        )
+        self.oracle_distance_max_next_actions = int(
+            self.extras.get(
+                "oracle_distance_max_next_actions",
+                os.getenv("ARC_AGI3_ORACLE_DISTANCE_MAX_NEXT_ACTIONS", "8"),
+            )
+        )
         self.frame_observation_mode = str(self.extras.get("frame_observation_mode", "initial_full_then_diff"))
         self.full_frame_interval = int(self.extras.get("full_frame_interval", 0))
         self.patch_radius = int(self.extras.get("patch_radius", 4))
@@ -490,6 +531,7 @@ class ArcAgi3Env(BaseTextEnv):
         self.last_levels_completed = 0
         self.last_diff_stats: FrameDiffStats | None = None
         self.last_click: tuple[int, int] | None = None
+        self.last_oracle_distance: OracleDistanceInfo | None = None
         self.done = False
         self.success = False
         self.game_over = False
@@ -524,6 +566,7 @@ class ArcAgi3Env(BaseTextEnv):
         self.last_frame = _to_plain(getattr(obs_space, "frame", None))
         self.last_score = self._read_score(obs_space)
         self.last_levels_completed = self._read_levels_completed(obs_space)
+        self.last_oracle_distance = self._oracle_distance_info()
 
     def init(self, prompt: ConversationType) -> tuple[ConversationType, dict[str, Any]]:
         prompt = list(prompt)
@@ -537,6 +580,7 @@ class ArcAgi3Env(BaseTextEnv):
         reward_components: dict[str, float] = {}
         diff_metadata = None
         current_frame = None
+        oracle_before = self._oracle_distance_info()
         try:
             parsed = parse_model_action(action)
             step_output = self._apply_action(parsed)
@@ -551,12 +595,21 @@ class ArcAgi3Env(BaseTextEnv):
         if step_output is not None:
             current_frame = _to_plain(getattr(step_output, "frame", None))
             diff_stats = _diff_stats(self.last_frame, current_frame, max_examples=self.max_diff_examples)
-            reward, reward_components = self._compute_reward(step_output, diff_stats, parsed)
+            oracle_after = self._oracle_distance_info()
+            reward, reward_components = self._compute_reward(
+                step_output,
+                diff_stats,
+                parsed,
+                valid_action=valid_action,
+                oracle_before=oracle_before,
+                oracle_after=oracle_after,
+            )
             self.done = bool(getattr(step_output, "done", False)) or self.turns >= self.max_turns
             self.success = self._is_success(step_output)
             self.game_over = self._is_game_over(step_output)
         else:
             diff_stats = None
+            oracle_after = oracle_before
             reward = self.invalid_action_reward
             reward_components = {"invalid_action": self.invalid_action_reward}
             self.done = self.turns >= self.max_turns
@@ -591,6 +644,7 @@ class ArcAgi3Env(BaseTextEnv):
                 "model_output": action,
                 "parsed_action": _parsed_action_metadata(parsed),
                 "reward_components": reward_components,
+                "oracle_distance": self._oracle_distance_metadata(oracle_before, oracle_after, reward_components),
                 "diff_stats": diff_metadata,
                 "frame": _frame_metadata(current_frame if current_frame is not None else self.last_frame),
                 "state": self._state_metadata(step_output),
@@ -614,10 +668,15 @@ class ArcAgi3Env(BaseTextEnv):
         observation: Any,
         diff_stats: FrameDiffStats | None,
         parsed: ParsedAction | None,
+        *,
+        valid_action: bool = True,
+        oracle_before: OracleDistanceInfo | None = None,
+        oracle_after: OracleDistanceInfo | None = None,
     ) -> tuple[float, dict[str, float]]:
         levels_completed = self._read_levels_completed(observation)
         level_delta = max(0, levels_completed - self.last_levels_completed)
         done = bool(getattr(observation, "done", False))
+        success = self._is_success(observation)
         click = self._click_tuple(parsed)
         repeated_click = self._is_repeated_click(click)
 
@@ -627,14 +686,65 @@ class ArcAgi3Env(BaseTextEnv):
             "meaningful_diff": self.meaningful_diff_reward if self._has_meaningful_diff(diff_stats) else 0.0,
             "repeat_click": self.repeat_click_penalty if repeated_click else 0.0,
         }
+        if self.oracle_distance_reward_enabled:
+            progress = oracle_progress_delta(
+                oracle_before,
+                oracle_after,
+                level_delta=level_delta,
+                success=success,
+            )
+            components["oracle_progress"] = progress * self.oracle_distance_reward
+            components["oracle_valid_action"] = self.oracle_distance_valid_action_reward if valid_action else 0.0
+            components["oracle_unrecoverable"] = (
+                self.oracle_distance_unrecoverable_penalty
+                if self._is_oracle_unrecoverable(oracle_before, oracle_after, success)
+                else 0.0
+            )
         reward = sum(components.values())
 
         self.last_score = self._read_score(observation)
         self.last_levels_completed = levels_completed
         self.last_diff_stats = diff_stats
+        self.last_oracle_distance = oracle_after
         if click is not None:
             self.last_click = click
         return reward, components
+
+    def _oracle_distance_info(self) -> OracleDistanceInfo | None:
+        if not self.oracle_distance_reward_enabled or self.task_id != "ft09" or self.env is None:
+            return None
+        game = getattr(self.env, "_game", None)
+        if game is None:
+            return None
+        return inspect_oracle_distance(game, max_next_actions=self.oracle_distance_max_next_actions)
+
+    def _is_oracle_unrecoverable(
+        self,
+        before: OracleDistanceInfo | None,
+        after: OracleDistanceInfo | None,
+        success: bool,
+    ) -> bool:
+        if success:
+            return False
+        return bool(before and before.solvable and after and not after.solvable)
+
+    def _oracle_distance_metadata(
+        self,
+        before: OracleDistanceInfo | None,
+        after: OracleDistanceInfo | None,
+        reward_components: dict[str, float],
+    ) -> dict[str, Any] | None:
+        if not self.oracle_distance_reward_enabled:
+            return None
+        if self.oracle_distance_reward:
+            progress = reward_components.get("oracle_progress", 0.0) / self.oracle_distance_reward
+        else:
+            progress = 0.0
+        return {
+            "before": before.to_metadata() if before else None,
+            "after": after.to_metadata() if after else None,
+            "progress_delta": progress,
+        }
 
     def _has_meaningful_diff(self, diff_stats: FrameDiffStats | None) -> bool:
         if diff_stats is None:

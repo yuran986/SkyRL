@@ -269,6 +269,9 @@ reward_oracle_progress = V_oracle(before) - V_oracle(after)
 - `repeat_noop_penalty`: 重复点击、无 frame diff、plan length 不变时负。
 - `unrecoverable_penalty`: 如果当前状态 oracle 已无法求解，给明显负 reward 并终止或强惩罚。
 
+oracle-distance RL 不需要新增 action-only token mask；沿用现有 GRPO response loss mask。
+action-only mask 只属于 tiny SFT fallback，因为只有 SFT 会人为提供空 thinking label。
+
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的
 `solve_click_plan(game)`，但不要执行 oracle click。它只读取当前 env/game state，返回：
 

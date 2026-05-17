@@ -12,6 +12,7 @@ from examples.train_integrations.arc_agi3.env import (
     _format_diff_patch,
     parse_model_action,
 )
+from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward import OracleDistanceInfo
 
 
 def test_parse_simple_action():
@@ -148,10 +149,16 @@ def _reward_env():
     env.max_meaningful_diff_changes = 512
     env.repeat_click_penalty = -0.02
     env.repeat_click_radius = 2
+    env.oracle_distance_reward_enabled = False
+    env.oracle_distance_reward = 0.05
+    env.oracle_distance_valid_action_reward = 0.0
+    env.oracle_distance_unrecoverable_penalty = -1.0
+    env.oracle_distance_max_next_actions = 8
     env.last_score = 0.0
     env.last_levels_completed = 0
     env.last_diff_stats = None
     env.last_click = None
+    env.last_oracle_distance = None
     return env
 
 
@@ -194,3 +201,45 @@ def test_reward_penalizes_nearby_repeated_clicks():
     assert components["meaningful_diff"] == pytest.approx(0.005)
     assert components["repeat_click"] == pytest.approx(-0.02)
     assert reward == pytest.approx(-0.015)
+
+
+def test_reward_adds_oracle_distance_progress_when_enabled():
+    env = _reward_env()
+    env.oracle_distance_reward_enabled = True
+    env.oracle_distance_reward = 0.5
+    observation = SimpleNamespace(levels_completed=0, score=0.0, done=False, state=None)
+    diff = FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
+    before = OracleDistanceInfo(True, 5, 0, "L0", [])
+    after = OracleDistanceInfo(True, 2, 0, "L0", [])
+
+    reward, components = env._compute_reward(
+        observation,
+        diff,
+        ParsedAction(name="ACTION6", x=10, y=10),
+        oracle_before=before,
+        oracle_after=after,
+    )
+
+    assert components["oracle_progress"] == pytest.approx(1.5)
+    assert reward == pytest.approx(1.5)
+
+
+def test_reward_penalizes_oracle_unrecoverable_state_when_enabled():
+    env = _reward_env()
+    env.oracle_distance_reward_enabled = True
+    env.oracle_distance_unrecoverable_penalty = -2.0
+    observation = SimpleNamespace(levels_completed=0, score=0.0, done=False, state=None)
+    diff = FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
+    before = OracleDistanceInfo(True, 5, 0, "L0", [])
+    after = OracleDistanceInfo(False, None, 0, "L0", [], error="no plan")
+
+    reward, components = env._compute_reward(
+        observation,
+        diff,
+        ParsedAction(name="ACTION6", x=10, y=10),
+        oracle_before=before,
+        oracle_after=after,
+    )
+
+    assert components["oracle_unrecoverable"] == pytest.approx(-2.0)
+    assert reward == pytest.approx(-2.0)
