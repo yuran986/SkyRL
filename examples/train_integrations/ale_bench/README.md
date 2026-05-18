@@ -22,12 +22,13 @@ On clusters without Docker, use Apptainer/Singularity:
 
 ```sh
 cd /home/users/yz1051/ALE-Bench
-bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench $HOME/ale-bench-sif
+bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench /usr/project/xtmp/yz1051/ale-bench-sif
 export ALE_BENCH_CONTAINER_BACKEND=apptainer
-export ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif
+export ALE_BENCH_APPTAINER_IMAGE_DIR=/usr/project/xtmp/yz1051/ale-bench-sif
+export ALE_BENCH_CACHE=/usr/project/xtmp/yz1051/ale-bench-cache
 ```
 
-The pull script writes SIF files when possible and falls back to Apptainer sandbox directories when SIF creation is blocked by the cluster. The ALE-Bench runtime accepts both under `ALE_BENCH_APPTAINER_IMAGE_DIR`.
+The pull script writes SIF files when possible and falls back to Apptainer sandbox directories when SIF creation is blocked by the cluster. Keep `ALE_BENCH_APPTAINER_IMAGE_DIR` on `/usr/project/xtmp/yz1051` because these images and temporary build files are too large for `$HOME` quota.
 
 If ALE-Bench is not installed in the SkyRL environment, set `ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench`; the run script adds `ALE_BENCH_REPO/src` to `PYTHONPATH`.
 
@@ -38,7 +39,7 @@ cd /home/users/yz1051/SkyRL
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 PYTHONPATH=/home/users/yz1051/ALE-Bench/src:$PWD \
 uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
-  --output_dir $HOME/data/ale_bench \
+  --output_dir /usr/project/xtmp/yz1051/data/ale_bench \
   --problem_ids ahc001 \
   --train_size 8 \
   --val_size 2
@@ -50,10 +51,11 @@ The parquet rows use `env_class=ale_bench` and pass `problem_id`, `code_language
 
 ```sh
 cd /home/users/yz1051/SkyRL
-DATA_DIR=$HOME/data/ale_bench \
+DATA_DIR=/usr/project/xtmp/yz1051/data/ale_bench \
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 ALE_BENCH_CONTAINER_BACKEND=apptainer \
-ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif \
+ALE_BENCH_APPTAINER_IMAGE_DIR=/usr/project/xtmp/yz1051/ale-bench-sif \
+ALE_BENCH_CACHE=/usr/project/xtmp/yz1051/ale-bench-cache \
 LOGGER=console \
 bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 ```

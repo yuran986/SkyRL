@@ -181,13 +181,14 @@ bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
 
 ```sh
 cd /home/users/yz1051/ALE-Bench
-bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench $HOME/ale-bench-sif
+bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench /usr/project/xtmp/yz1051/ale-bench-sif
 export ALE_BENCH_CONTAINER_BACKEND=apptainer
-export ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif
+export ALE_BENCH_APPTAINER_IMAGE_DIR=/usr/project/xtmp/yz1051/ale-bench-sif
+export ALE_BENCH_CACHE=/usr/project/xtmp/yz1051/ale-bench-cache
 ```
 
 ALE-Bench 原生会在 `start()` 时编译 Rust tools，并在 `public_eval()` 里编译/运行提交代码。现在容器后端由 `ALE_BENCH_CONTAINER_BACKEND` 控制；默认是 `docker`，在没有 Docker 的 Slurm 集群上应设为 `apptainer`。
-pull 脚本会优先生成 `.sif` 文件；如果集群限制导致 `mksquashfs`/SIF 创建失败，会自动退回到 Apptainer sandbox 目录。运行时会在 `ALE_BENCH_APPTAINER_IMAGE_DIR` 下同时识别这两种形式。
+pull 脚本会优先生成 `.sif` 文件；如果集群限制导致 `mksquashfs`/SIF 创建失败，会自动退回到 Apptainer sandbox 目录。运行时会在 `ALE_BENCH_APPTAINER_IMAGE_DIR` 下同时识别这两种形式。镜像、sandbox、Apptainer cache、ALE-Bench cache 和临时 build 文件都比较大，默认放到 `/usr/project/xtmp/yz1051`，不要放在 `$HOME`。
 Apptainer 后端默认启用 `--writable-tmpfs`，用于创建 `/workdir`、`/judge` 等 bind mount point；如果集群不允许该参数，可以设置 `ALE_BENCH_APPTAINER_WRITABLE_TMPFS=0` 后再测试。
 
 生成训练数据：
@@ -197,7 +198,7 @@ cd /home/users/yz1051/SkyRL
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 PYTHONPATH=/home/users/yz1051/ALE-Bench/src:$PWD \
 uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
-  --output_dir $HOME/data/ale_bench \
+  --output_dir /usr/project/xtmp/yz1051/data/ale_bench \
   --problem_ids ahc001 \
   --train_size 8 \
   --val_size 2
@@ -206,10 +207,11 @@ uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
 启动训练：
 
 ```sh
-DATA_DIR=$HOME/data/ale_bench \
+DATA_DIR=/usr/project/xtmp/yz1051/data/ale_bench \
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 ALE_BENCH_CONTAINER_BACKEND=apptainer \
-ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif \
+ALE_BENCH_APPTAINER_IMAGE_DIR=/usr/project/xtmp/yz1051/ale-bench-sif \
+ALE_BENCH_CACHE=/usr/project/xtmp/yz1051/ale-bench-cache \
 LOGGER=console \
 bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 ```
