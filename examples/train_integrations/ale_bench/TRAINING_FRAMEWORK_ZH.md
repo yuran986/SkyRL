@@ -158,7 +158,7 @@ You may submit an improved complete solution.
 - `MAX_GENERATE_LENGTH=8192`
 - `MAX_ENV_WORKERS=4`
 
-ALE-Bench judge 会启动 Docker 容器并编译/运行代码，开销比普通文本 reward 大很多，所以默认 `MAX_ENV_WORKERS` 比 `arc_agi3` 更保守。多 GPU 训练时可以逐步增大，但建议先观察 CPU、Docker daemon、磁盘和内存压力。
+ALE-Bench judge 会启动容器并编译/运行代码，开销比普通文本 reward 大很多，所以默认 `MAX_ENV_WORKERS` 比 `arc_agi3` 更保守。多 GPU 训练时可以逐步增大，但建议先观察 CPU、容器运行时、磁盘和内存压力。
 
 ## 推荐运行流程
 
@@ -170,12 +170,25 @@ uv sync --extra dev --extra fsdp
 uv pip install -e /home/users/yz1051/ALE-Bench python-dotenv datasets
 ```
 
-准备 ALE-Bench Docker judge image：
+准备 ALE-Bench 容器镜像。如果机器有 Docker：
 
 ```sh
 cd /home/users/yz1051/ALE-Bench
 bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
 ```
+
+如果集群没有 Docker 但有 Apptainer/Singularity：
+
+```sh
+cd /home/users/yz1051/ALE-Bench
+bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench $HOME/ale-bench-sif
+export ALE_BENCH_CONTAINER_BACKEND=apptainer
+export ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif
+```
+
+ALE-Bench 原生会在 `start()` 时编译 Rust tools，并在 `public_eval()` 里编译/运行提交代码。现在容器后端由 `ALE_BENCH_CONTAINER_BACKEND` 控制；默认是 `docker`，在没有 Docker 的 Slurm 集群上应设为 `apptainer`。
+pull 脚本会优先生成 `.sif` 文件；如果集群限制导致 `mksquashfs`/SIF 创建失败，会自动退回到 Apptainer sandbox 目录。运行时会在 `ALE_BENCH_APPTAINER_IMAGE_DIR` 下同时识别这两种形式。
+Apptainer 后端默认启用 `--writable-tmpfs`，用于创建 `/workdir`、`/judge` 等 bind mount point；如果集群不允许该参数，可以设置 `ALE_BENCH_APPTAINER_WRITABLE_TMPFS=0` 后再测试。
 
 生成训练数据：
 
@@ -195,6 +208,8 @@ uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
 ```sh
 DATA_DIR=$HOME/data/ale_bench \
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
+ALE_BENCH_CONTAINER_BACKEND=apptainer \
+ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif \
 LOGGER=console \
 bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 ```
@@ -221,7 +236,8 @@ bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 - feedback 比较粗，只返回 case 级摘要。
 - reward scale 需要按题目调参，不同 AHC 问题原始分数范围差异很大。
 - 默认 prompt 没有加入 few-shot，也没有固定代码模板。
-- Docker judge 依赖本机 image、Docker 权限和 ALE-Bench 数据缓存。
+- 容器 judge 依赖本机 image、运行时权限和 ALE-Bench 数据缓存。
+- Apptainer 后端需要先把 Docker Hub 预构建镜像拉成本地 `.sif` 或 sandbox 目录，并确保 `ALE_BENCH_APPTAINER_IMAGE_DIR` 指向该目录。
 
 后续可以增强的方向：
 

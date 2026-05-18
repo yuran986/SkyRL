@@ -30,6 +30,8 @@ source .venv/bin/activate
 RUN_ID="${RUN_ID:-${SLURM_JOB_NAME:-ale_bench_grpo}_${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)}}"
 ALE_BENCH_REPO="${ALE_BENCH_REPO:-/home/users/yz1051/ALE-Bench}"
 DATA_DIR="${DATA_DIR:-$HOME/data/ale_bench}"
+ALE_BENCH_CONTAINER_BACKEND="${ALE_BENCH_CONTAINER_BACKEND:-apptainer}"
+ALE_BENCH_APPTAINER_IMAGE_DIR="${ALE_BENCH_APPTAINER_IMAGE_DIR:-$HOME/ale-bench-sif}"
 
 if [ ! -d "$DATA_DIR" ]; then
   echo "Missing DATA_DIR: $DATA_DIR" >&2
@@ -42,6 +44,13 @@ if [ ! -d "$ALE_BENCH_REPO/src" ]; then
   exit 1
 fi
 
+if [ "$ALE_BENCH_CONTAINER_BACKEND" = "apptainer" ] && [ ! -d "$ALE_BENCH_APPTAINER_IMAGE_DIR" ]; then
+  echo "Missing ALE_BENCH_APPTAINER_IMAGE_DIR: $ALE_BENCH_APPTAINER_IMAGE_DIR" >&2
+  echo "Create it first with:" >&2
+  echo "  bash $ALE_BENCH_REPO/scripts/apptainer_pull_202301.sh yimjk/ale-bench $ALE_BENCH_APPTAINER_IMAGE_DIR" >&2
+  exit 1
+fi
+
 echo "Started at $(date)"
 echo "Host: $(hostname)"
 echo "Run ID: $RUN_ID"
@@ -49,11 +58,15 @@ echo "Slurm job ID: ${SLURM_JOB_ID:-none}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 echo "DATA_DIR=$DATA_DIR"
 echo "ALE_BENCH_REPO=$ALE_BENCH_REPO"
+echo "ALE_BENCH_CONTAINER_BACKEND=$ALE_BENCH_CONTAINER_BACKEND"
+echo "ALE_BENCH_APPTAINER_IMAGE_DIR=$ALE_BENCH_APPTAINER_IMAGE_DIR"
 nvidia-smi
 
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 DATA_DIR="$DATA_DIR" \
 ALE_BENCH_REPO="$ALE_BENCH_REPO" \
+ALE_BENCH_CONTAINER_BACKEND="$ALE_BENCH_CONTAINER_BACKEND" \
+ALE_BENCH_APPTAINER_IMAGE_DIR="$ALE_BENCH_APPTAINER_IMAGE_DIR" \
 CKPT_PATH=/usr/project/xtmp/yz1051/ckpts/ale_bench_3B \
 COLOCATE_ALL=false \
 NUM_GPUS=2 \

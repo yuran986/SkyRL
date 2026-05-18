@@ -11,12 +11,23 @@ uv sync --extra dev --extra fsdp
 uv pip install -e /home/users/yz1051/ALE-Bench python-dotenv datasets
 ```
 
-Build or pull the ALE-Bench Docker images for the target judge/language before training. For example:
+Build or pull the ALE-Bench container images for the target judge/language before training. On Docker-enabled machines:
 
 ```sh
 cd /home/users/yz1051/ALE-Bench
 bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
 ```
+
+On clusters without Docker, use Apptainer/Singularity:
+
+```sh
+cd /home/users/yz1051/ALE-Bench
+bash ./scripts/apptainer_pull_202301.sh yimjk/ale-bench $HOME/ale-bench-sif
+export ALE_BENCH_CONTAINER_BACKEND=apptainer
+export ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif
+```
+
+The pull script writes SIF files when possible and falls back to Apptainer sandbox directories when SIF creation is blocked by the cluster. The ALE-Bench runtime accepts both under `ALE_BENCH_APPTAINER_IMAGE_DIR`.
 
 If ALE-Bench is not installed in the SkyRL environment, set `ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench`; the run script adds `ALE_BENCH_REPO/src` to `PYTHONPATH`.
 
@@ -41,8 +52,10 @@ The parquet rows use `env_class=ale_bench` and pass `problem_id`, `code_language
 cd /home/users/yz1051/SkyRL
 DATA_DIR=$HOME/data/ale_bench \
 ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
+ALE_BENCH_CONTAINER_BACKEND=apptainer \
+ALE_BENCH_APPTAINER_IMAGE_DIR=$HOME/ale-bench-sif \
 LOGGER=console \
 bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 ```
 
-Useful overrides: `MODEL_PATH`, `NUM_GPUS`, `MAX_INPUT_LENGTH`, `MAX_GENERATE_LENGTH`, `MAX_ENV_WORKERS`, `ALE_BENCH_CODE_LANGUAGE`, and `ALE_BENCH_JUDGE_VERSION`.
+Useful overrides: `MODEL_PATH`, `NUM_GPUS`, `MAX_INPUT_LENGTH`, `MAX_GENERATE_LENGTH`, `MAX_ENV_WORKERS`, `ALE_BENCH_CODE_LANGUAGE`, `ALE_BENCH_JUDGE_VERSION`, and container backend variables.
