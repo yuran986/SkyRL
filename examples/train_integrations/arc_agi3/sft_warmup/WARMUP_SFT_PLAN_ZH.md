@@ -301,7 +301,7 @@ reward =
 | `repeat_click` | `repeat_click_penalty` | `-0.02` | 当前点击与上次点击过近时惩罚，压制无意义重复点击。 |
 | `oracle_progress` | `oracle_distance_reward` / `ARC_AGI3_ORACLE_DISTANCE_REWARD` | `0.05` | oracle plan length 变短时给分，`progress_delta * oracle_distance_reward`。 |
 | `oracle_valid_action` | `oracle_distance_valid_action_reward` / `ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD` | `0.0` | 合法 action 额外奖励；当前关闭，避免只学会合法但无推进的点击。 |
-| `oracle_action_match` | `oracle_action_match_reward` / `ARC_AGI3_ORACLE_ACTION_MATCH_REWARD` | env `0.0`；warm-up `0.2` | v2 新增。当前点击精确匹配 oracle next action center 时给分；默认不做“越近越好”的距离奖励。 |
+| `oracle_action_match` | `oracle_action_match_reward` / `ARC_AGI3_ORACLE_ACTION_MATCH_REWARD` | env `0.0`；warm-up `0.05` | v2 新增。当前点击精确匹配 oracle next action center 时给分；默认不做“越近越好”的距离奖励。设为 `0.05` 是为了和 `oracle_progress` 同量级，避免双重奖励过强。 |
 | `oracle_unrecoverable` | `oracle_distance_unrecoverable_penalty` / `ARC_AGI3_ORACLE_DISTANCE_UNRECOVERABLE_PENALTY` | `-1.0` | before 可解、after 不可解且未 success 时强惩罚。 |
 
 | 辅助参数 / 环境变量 | 当前默认 | 含义 / 设置原因 |
@@ -373,7 +373,7 @@ Reward 配置变化：
 
 | 参数 | 值 |
 | --- | ---: |
-| `oracle_action_match_reward` | warm-up 默认 `0.2` |
+| `oracle_action_match_reward` | warm-up 默认 `0.05` |
 | `oracle_action_match_radius` | `0` |
 | `oracle_distance_reward` | 保持 `0.05` |
 | 训练 `max_turns` | 保持 `10` |
@@ -383,44 +383,22 @@ Reward 配置变化：
 - 不先增加 `max_turns`，避免引入额外 token 长度和显存压力。
 - 不使用半径 4 这种“离目标越近越好”的默认奖励；ft09 oracle 当前只可靠暴露 `display_center(sprite)`。
 - v2 只奖励精确匹配 oracle 当前 next action center，降低把相邻无效格子误当正样本的风险。
+- `oracle_action_match_reward` 与 `oracle_distance_reward` 有重叠，因此先设成同量级的 `0.05`，而不是更大的主 reward。
 
 观察目标：
 
 - `oracle_action_match` 是否能提高 oracle next action 的采样频率。
 - 是否能从只拿一次 `0.055` 进展到多次 oracle progress 或完成第一个 level。
-- 如果仍然固定扫点，再进入 v3。
 
-#### v3 候选: No-progress Penalty
+#### 待评估改动
 
-待 v2 训练结果决定是否启用。
+下面不是新版本，只是 v2 跑完后根据结果再决定是否启用：
 
-候选配置：
-
-| 参数 | 候选值 |
-| --- | ---: |
-| `oracle_no_progress_penalty` | `-0.01` 或 `-0.02` |
-
-目标是惩罚“valid action 但 oracle plan length 不变”的点击，压低固定扫点。
-
-#### v4 候选: 提高 Oracle Progress 权重
-
-待 v2/v3 训练结果决定是否启用。
-
-候选配置：
-
-| 参数 | 候选值 |
-| --- | ---: |
-| `oracle_distance_reward` | `0.5` |
-
-目标是让 plan length 变短成为更强主信号。该改动比 v2 更激进，因此暂不作为第一步。
-
-当前后续顺序：
-
-1. 训练 `max_turns` 暂时保持 10，避免显存和 token 长度压力先变大。
-2. 先启用 exact `oracle_action_match`，观察是否增加 oracle center action 的采样。
-3. 如果仍然固定扫点，再加 `oracle_no_progress_penalty=-0.01/-0.02`。
-4. 如果 action-match 有效但整体推进仍弱，再把 `oracle_distance_reward` 从 `0.05` 提到 `0.5`。
-5. 最后才小步试训练 `max_turns=12/16`；eval 可以继续保持 20。
+| 改动 | 候选值 | 触发条件 |
+| --- | ---: | --- |
+| `oracle_no_progress_penalty` | `-0.01` 或 `-0.02` | 如果 v2 仍然固定扫点、valid action 多但 oracle plan 不下降。 |
+| 提高 `oracle_distance_reward` | `0.5` | 如果 v2 能命中 oracle center，但 plan length 推进信号仍然太弱。 |
+| 提高训练 `max_turns` | `12` 或 `16` | 如果 v2 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
 
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的
 `solve_click_plan(game)`，但不要执行 oracle click。它只读取当前 env/game state，返回：
