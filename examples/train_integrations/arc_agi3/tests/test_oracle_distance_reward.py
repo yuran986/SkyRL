@@ -6,6 +6,7 @@ from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward impo
     inspect_oracle_distance,
     matches_oracle_next_action,
     oracle_progress_delta,
+    should_penalize_oracle_no_progress,
 )
 
 
@@ -102,3 +103,88 @@ def test_matches_oracle_next_action_rejects_missing_click_or_unsolvable_state():
 
     assert matches_oracle_next_action(None, solvable, radius=4) is False
     assert matches_oracle_next_action((38, 38), unsolvable, radius=4) is False
+
+
+def test_should_penalize_oracle_no_progress_for_valid_non_advancing_action():
+    before = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 4)])
+    after = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 4)])
+
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            after,
+            progress_delta=0.0,
+            level_delta=0,
+            success=False,
+            valid_action=True,
+        )
+        is True
+    )
+
+
+def test_should_penalize_oracle_no_progress_for_regression():
+    before = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 1)])
+    after = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 4)])
+
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            after,
+            progress_delta=-3.0,
+            level_delta=0,
+            success=False,
+            valid_action=True,
+        )
+        is True
+    )
+
+
+def test_should_not_penalize_oracle_no_progress_for_progress_or_terminal_cases():
+    before = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 4)])
+    after = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 0, 0), 3)])
+    unsolvable = inspect_oracle_distance(_game(), solver=lambda _game: (_ for _ in ()).throw(RuntimeError("bad")))
+
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            after,
+            progress_delta=1.0,
+            level_delta=0,
+            success=False,
+            valid_action=True,
+        )
+        is False
+    )
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            after,
+            progress_delta=0.0,
+            level_delta=1,
+            success=False,
+            valid_action=True,
+        )
+        is False
+    )
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            after,
+            progress_delta=0.0,
+            level_delta=0,
+            success=True,
+            valid_action=True,
+        )
+        is False
+    )
+    assert (
+        should_penalize_oracle_no_progress(
+            before,
+            unsolvable,
+            progress_delta=0.0,
+            level_delta=0,
+            success=False,
+            valid_action=True,
+        )
+        is False
+    )

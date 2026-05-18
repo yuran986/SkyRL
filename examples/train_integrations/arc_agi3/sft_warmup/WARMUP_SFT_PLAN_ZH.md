@@ -289,6 +289,7 @@ reward =
 + oracle_progress
 + oracle_valid_action
 + oracle_action_match
++ oracle_no_progress
 + oracle_unrecoverable
 ```
 
@@ -302,6 +303,7 @@ reward =
 | `oracle_progress` | `oracle_distance_reward` / `ARC_AGI3_ORACLE_DISTANCE_REWARD` | `0.05` | oracle plan length 变短时给分，`progress_delta * oracle_distance_reward`。 |
 | `oracle_valid_action` | `oracle_distance_valid_action_reward` / `ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD` | `0.0` | 合法 action 额外奖励；当前关闭，避免只学会合法但无推进的点击。 |
 | `oracle_action_match` | `oracle_action_match_reward` / `ARC_AGI3_ORACLE_ACTION_MATCH_REWARD` | `0.0` | 诊断项。当前点击精确匹配 oracle next action center 时可记录为非零；默认不加 reward，避免和 `oracle_progress` 双重奖励同一动作。 |
+| `oracle_no_progress` | `oracle_no_progress_penalty` / `ARC_AGI3_ORACLE_NO_PROGRESS_PENALTY` | env `0.0`；warm-up `-0.01` | v2 主改动。valid action 后 oracle before/after 都可解、无 level advance/success、且 `progress_delta <= 0` 时惩罚。 |
 | `oracle_unrecoverable` | `oracle_distance_unrecoverable_penalty` / `ARC_AGI3_ORACLE_DISTANCE_UNRECOVERABLE_PENALTY` | `-1.0` | before 可解、after 不可解且未 success 时强惩罚。 |
 
 | 辅助参数 / 环境变量 | 当前默认 | 含义 / 设置原因 |
@@ -327,10 +329,7 @@ else:
     progress_delta = before.plan_len - after.plan_len
 ```
 
-当前实现还没有：
-
-- 没有惩罚“valid action 但 oracle plan length 不变”的普通点击。
-- `meaningful_diff` 只表示画面发生局部变化，不保证更接近通关。
+`meaningful_diff` 只表示画面发生局部变化，不保证更接近通关，因此保持低权重。
 
 ### Reward 历史与训练总结
 
@@ -365,7 +364,7 @@ Reward 配置：
 - `0.055 = oracle_progress 0.05 + meaningful_diff 0.005`。
 - 模型只学到一次局部推进，没有继续完成后续 oracle plan。
 
-#### v2: Exact Oracle Action Match Diagnostic
+#### v2: Oracle No-progress Penalty
 
 当前实现版本，尚未训练。
 
@@ -373,6 +372,7 @@ Reward 配置：
 
 | 参数 | 值 |
 | --- | ---: |
+| `oracle_no_progress_penalty` | warm-up 默认 `-0.01` |
 | `oracle_action_match_reward` | `0.0` |
 | `oracle_action_match_radius` | `0` |
 | `oracle_distance_reward` | 保持 `0.05` |
@@ -381,13 +381,16 @@ Reward 配置：
 设置原因：
 
 - 不先增加 `max_turns`，避免引入额外 token 长度和显存压力。
+- v1 的主要失败模式是大量 valid action 没有让 oracle plan 下降；v2 直接惩罚这类 no-progress action。
+- `oracle_no_progress` 对 `progress_delta <= 0` 生效，因此覆盖 plan 不变和 plan 变差；after 不可解时不走该项，交给 `oracle_unrecoverable`。
 - 不使用半径 4 这种“离目标越近越好”的默认奖励；ft09 oracle 当前只可靠暴露 `display_center(sprite)`。
 - exact `oracle_action_match` 与 `oracle_progress` 高度重叠：匹配 oracle next action center 后，正常情况下 plan length 会下降。
-- 因此 v2 不把 action match 作为 reward，只保留该 component/metadata 方便统计模型是否真的命中 oracle center。
+- 因此 v2 不把 action match 作为 reward，只保留该 component 方便统计模型是否真的命中 oracle center。
 
 观察目标：
 
-- `oracle_action_match` 是否能提高 oracle next action 的采样频率。
+- no-progress penalty 是否能压低固定扫点。
+- `oracle_action_match` 是否随训练提高，用于判断模型是否更常命中 oracle center。
 - 是否能从只拿一次 `0.055` 进展到多次 oracle progress 或完成第一个 level。
 
 #### 待评估改动
@@ -396,8 +399,8 @@ Reward 配置：
 
 | 改动 | 候选值 | 触发条件 |
 | --- | ---: | --- |
-| `oracle_no_progress_penalty` | `-0.01` 或 `-0.02` | 如果 v2 仍然固定扫点、valid action 多但 oracle plan 不下降。 |
 | 提高 `oracle_distance_reward` | `0.5` | 如果 v2 能命中 oracle center，但 plan length 推进信号仍然太弱。 |
+| 加强 `oracle_no_progress_penalty` | `-0.02` | 如果 `-0.01` 仍压不住固定扫点。 |
 | 提高训练 `max_turns` | `12` 或 `16` | 如果 v2 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
 
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的

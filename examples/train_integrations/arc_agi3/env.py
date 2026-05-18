@@ -15,6 +15,7 @@ from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward impo
     inspect_oracle_distance,
     matches_oracle_next_action,
     oracle_progress_delta,
+    should_penalize_oracle_no_progress,
 )
 
 
@@ -512,6 +513,12 @@ class ArcAgi3Env(BaseTextEnv):
                 os.getenv("ARC_AGI3_ORACLE_ACTION_MATCH_RADIUS", "0"),
             )
         )
+        self.oracle_no_progress_penalty = float(
+            self.extras.get(
+                "oracle_no_progress_penalty",
+                os.getenv("ARC_AGI3_ORACLE_NO_PROGRESS_PENALTY", "0.0"),
+            )
+        )
         self.oracle_distance_unrecoverable_penalty = float(
             self.extras.get(
                 "oracle_distance_unrecoverable_penalty",
@@ -714,6 +721,18 @@ class ArcAgi3Env(BaseTextEnv):
                     click,
                     oracle_before,
                     radius=self.oracle_action_match_radius,
+                )
+                else 0.0
+            )
+            components["oracle_no_progress"] = (
+                self.oracle_no_progress_penalty
+                if should_penalize_oracle_no_progress(
+                    oracle_before,
+                    oracle_after,
+                    progress_delta=progress,
+                    level_delta=level_delta,
+                    success=success,
+                    valid_action=valid_action,
                 )
                 else 0.0
             )

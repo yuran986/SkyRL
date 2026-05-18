@@ -143,3 +143,24 @@ def matches_oracle_next_action(
         if abs(click_x - target_x) <= radius and abs(click_y - target_y) <= radius:
             return True
     return False
+
+
+def should_penalize_oracle_no_progress(
+    before: OracleDistanceInfo | None,
+    after: OracleDistanceInfo | None,
+    *,
+    progress_delta: float,
+    level_delta: int,
+    success: bool,
+    valid_action: bool,
+) -> bool:
+    """Return whether a valid action made no positive oracle progress."""
+    if not valid_action or success or level_delta > 0:
+        return False
+    if before is None or after is None:
+        return False
+    if not before.solvable or not after.solvable:
+        return False
+    if before.plan_len is None or after.plan_len is None:
+        return False
+    return progress_delta <= 0
