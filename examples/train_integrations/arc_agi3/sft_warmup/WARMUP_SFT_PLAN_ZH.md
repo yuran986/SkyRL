@@ -301,7 +301,7 @@ reward =
 | `repeat_click` | `repeat_click_penalty` | `-0.02` | 当前点击与上次点击过近时惩罚，压制无意义重复点击。 |
 | `oracle_progress` | `oracle_distance_reward` / `ARC_AGI3_ORACLE_DISTANCE_REWARD` | `0.05` | oracle plan length 变短时给分，`progress_delta * oracle_distance_reward`。 |
 | `oracle_valid_action` | `oracle_distance_valid_action_reward` / `ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD` | `0.0` | 合法 action 额外奖励；当前关闭，避免只学会合法但无推进的点击。 |
-| `oracle_action_match` | `oracle_action_match_reward` / `ARC_AGI3_ORACLE_ACTION_MATCH_REWARD` | env `0.0`；warm-up `0.05` | v2 新增。当前点击精确匹配 oracle next action center 时给分；默认不做“越近越好”的距离奖励。设为 `0.05` 是为了和 `oracle_progress` 同量级，避免双重奖励过强。 |
+| `oracle_action_match` | `oracle_action_match_reward` / `ARC_AGI3_ORACLE_ACTION_MATCH_REWARD` | `0.0` | 诊断项。当前点击精确匹配 oracle next action center 时可记录为非零；默认不加 reward，避免和 `oracle_progress` 双重奖励同一动作。 |
 | `oracle_unrecoverable` | `oracle_distance_unrecoverable_penalty` / `ARC_AGI3_ORACLE_DISTANCE_UNRECOVERABLE_PENALTY` | `-1.0` | before 可解、after 不可解且未 success 时强惩罚。 |
 
 | 辅助参数 / 环境变量 | 当前默认 | 含义 / 设置原因 |
@@ -365,15 +365,15 @@ Reward 配置：
 - `0.055 = oracle_progress 0.05 + meaningful_diff 0.005`。
 - 模型只学到一次局部推进，没有继续完成后续 oracle plan。
 
-#### v2: Exact Oracle Action Match
+#### v2: Exact Oracle Action Match Diagnostic
 
 当前实现版本，尚未训练。
 
-Reward 配置变化：
+配置变化：
 
 | 参数 | 值 |
 | --- | ---: |
-| `oracle_action_match_reward` | warm-up 默认 `0.05` |
+| `oracle_action_match_reward` | `0.0` |
 | `oracle_action_match_radius` | `0` |
 | `oracle_distance_reward` | 保持 `0.05` |
 | 训练 `max_turns` | 保持 `10` |
@@ -382,8 +382,8 @@ Reward 配置变化：
 
 - 不先增加 `max_turns`，避免引入额外 token 长度和显存压力。
 - 不使用半径 4 这种“离目标越近越好”的默认奖励；ft09 oracle 当前只可靠暴露 `display_center(sprite)`。
-- v2 只奖励精确匹配 oracle 当前 next action center，降低把相邻无效格子误当正样本的风险。
-- `oracle_action_match_reward` 与 `oracle_distance_reward` 有重叠，因此先设成同量级的 `0.05`，而不是更大的主 reward。
+- exact `oracle_action_match` 与 `oracle_progress` 高度重叠：匹配 oracle next action center 后，正常情况下 plan length 会下降。
+- 因此 v2 不把 action match 作为 reward，只保留该 component/metadata 方便统计模型是否真的命中 oracle center。
 
 观察目标：
 
