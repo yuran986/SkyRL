@@ -4,6 +4,7 @@ import pytest
 
 from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward import (
     inspect_oracle_distance,
+    matches_oracle_next_action,
     oracle_progress_delta,
 )
 
@@ -84,3 +85,20 @@ def test_oracle_progress_delta_does_not_compare_across_level_advance():
     after = inspect_oracle_distance(_game(1), solver=lambda _game: [(_sprite("B", 1, 1), 10)])
 
     assert oracle_progress_delta(before, after, level_delta=1, success=False) == pytest.approx(2.0)
+
+
+def test_matches_oracle_next_action_accepts_clicks_within_radius():
+    info = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 18, 18), 1)])
+
+    assert matches_oracle_next_action((38, 38), info, radius=0) is True
+    assert matches_oracle_next_action((39, 38), info, radius=0) is False
+    assert matches_oracle_next_action((40, 40), info, radius=2) is True
+    assert matches_oracle_next_action((41, 38), info, radius=2) is False
+
+
+def test_matches_oracle_next_action_rejects_missing_click_or_unsolvable_state():
+    solvable = inspect_oracle_distance(_game(), solver=lambda _game: [(_sprite("A", 18, 18), 1)])
+    unsolvable = inspect_oracle_distance(_game(), solver=lambda _game: (_ for _ in ()).throw(RuntimeError("bad")))
+
+    assert matches_oracle_next_action(None, solvable, radius=4) is False
+    assert matches_oracle_next_action((38, 38), unsolvable, radius=4) is False

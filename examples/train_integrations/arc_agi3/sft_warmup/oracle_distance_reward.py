@@ -119,3 +119,27 @@ def oracle_progress_delta(
     if after is None or not after.solvable or after.plan_len is None:
         return 0.0
     return float(before.plan_len - after.plan_len)
+
+
+def matches_oracle_next_action(
+    click: tuple[int, int] | None,
+    before: OracleDistanceInfo | None,
+    *,
+    radius: int,
+) -> bool:
+    """Return whether a click matches a current oracle next action within tolerance."""
+    if click is None or before is None or not before.solvable:
+        return False
+    radius = max(0, int(radius))
+    click_x, click_y = click
+    for action in before.next_actions:
+        if action.get("action") != "ACTION6":
+            continue
+        try:
+            target_x = int(action["x"])
+            target_y = int(action["y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if abs(click_x - target_x) <= radius and abs(click_y - target_y) <= radius:
+            return True
+    return False

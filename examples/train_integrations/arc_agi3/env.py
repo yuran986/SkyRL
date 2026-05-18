@@ -13,6 +13,7 @@ from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput, Con
 from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward import (
     OracleDistanceInfo,
     inspect_oracle_distance,
+    matches_oracle_next_action,
     oracle_progress_delta,
 )
 
@@ -499,6 +500,18 @@ class ArcAgi3Env(BaseTextEnv):
                 os.getenv("ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD", "0.0"),
             )
         )
+        self.oracle_action_match_reward = float(
+            self.extras.get(
+                "oracle_action_match_reward",
+                os.getenv("ARC_AGI3_ORACLE_ACTION_MATCH_REWARD", "0.0"),
+            )
+        )
+        self.oracle_action_match_radius = int(
+            self.extras.get(
+                "oracle_action_match_radius",
+                os.getenv("ARC_AGI3_ORACLE_ACTION_MATCH_RADIUS", "0"),
+            )
+        )
         self.oracle_distance_unrecoverable_penalty = float(
             self.extras.get(
                 "oracle_distance_unrecoverable_penalty",
@@ -695,6 +708,15 @@ class ArcAgi3Env(BaseTextEnv):
             )
             components["oracle_progress"] = progress * self.oracle_distance_reward
             components["oracle_valid_action"] = self.oracle_distance_valid_action_reward if valid_action else 0.0
+            components["oracle_action_match"] = (
+                self.oracle_action_match_reward
+                if matches_oracle_next_action(
+                    click,
+                    oracle_before,
+                    radius=self.oracle_action_match_radius,
+                )
+                else 0.0
+            )
             components["oracle_unrecoverable"] = (
                 self.oracle_distance_unrecoverable_penalty
                 if self._is_oracle_unrecoverable(oracle_before, oracle_after, success)
