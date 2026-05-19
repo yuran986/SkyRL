@@ -33,7 +33,7 @@ SkyRL 的 dataset loader 会读取 parquet 行，并把除 `prompt` 和 `env_cla
 {
     "prompt": [{"role": "user", "content": DEFAULT_PROMPT}],
     "env_class": "ale_bench",
-    "problem_id": "ahc001",
+    "problem_id": "ahc008",
     "lite_version": True,
     "max_steps": 1,
     "code_language": "cpp20",
@@ -45,6 +45,7 @@ SkyRL 的 dataset loader 会读取 parquet 行，并把除 `prompt` 和 `env_cla
 ```
 
 `problem_id` 决定训练题目，`max_steps` 决定每个 episode 允许提交几次代码。默认是 `1`，也就是单轮“读题后直接提交”。如果设置为大于 `1`，环境会把 public eval 的反馈作为下一轮 observation，让模型继续提交改进版完整代码。
+默认使用 ALE-Bench lite mode，只能选 `ahc008`、`ahc011`、`ahc015`、`ahc016`、`ahc024`、`ahc025`、`ahc026`、`ahc027`、`ahc039`、`ahc046`。如果要跑 `ahc001`，需要重新 prepare 数据时加 `--no-lite_version`，并确保完整 ALE-Bench 数据已下载。
 
 ## 环境生命周期
 
@@ -199,7 +200,7 @@ ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 PYTHONPATH=/home/users/yz1051/ALE-Bench/src:$PWD \
 uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
   --output_dir /usr/project/xtmp/yz1051/data/ale_bench \
-  --problem_ids ahc001 \
+  --problem_ids ahc008 \
   --train_size 8 \
   --val_size 2
 ```

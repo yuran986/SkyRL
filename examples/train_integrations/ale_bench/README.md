@@ -40,12 +40,12 @@ ALE_BENCH_REPO=/home/users/yz1051/ALE-Bench \
 PYTHONPATH=/home/users/yz1051/ALE-Bench/src:$PWD \
 uv run python examples/train_integrations/ale_bench/prepare_dataset.py \
   --output_dir /usr/project/xtmp/yz1051/data/ale_bench \
-  --problem_ids ahc001 \
+  --problem_ids ahc008 \
   --train_size 8 \
   --val_size 2
 ```
 
-The parquet rows use `env_class=ale_bench` and pass `problem_id`, `code_language`, `judge_version`, scoring, and feedback settings through `env_extras`.
+The parquet rows use `env_class=ale_bench` and pass `problem_id`, `code_language`, `judge_version`, scoring, and feedback settings through `env_extras`. The default uses ALE-Bench lite mode; valid lite problems are `ahc008`, `ahc011`, `ahc015`, `ahc016`, `ahc024`, `ahc025`, `ahc026`, `ahc027`, `ahc039`, and `ahc046`.
 
 ## Train
 

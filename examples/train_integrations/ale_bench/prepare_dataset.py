@@ -16,6 +16,19 @@ DEFAULT_PROMPT = (
     "Do not include multiple alternative files."
 )
 
+LITE_PROBLEM_IDS = {
+    "ahc008",
+    "ahc011",
+    "ahc015",
+    "ahc016",
+    "ahc024",
+    "ahc025",
+    "ahc026",
+    "ahc027",
+    "ahc039",
+    "ahc046",
+}
+
 
 def parse_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -59,7 +72,7 @@ def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Prepare ALE-Bench parquet data for SkyRL.")
     parser.add_argument("--output_dir", default=os.getenv("ALE_BENCH_DATA_DIR", "~/data/ale_bench"))
-    parser.add_argument("--problem_ids", default=os.getenv("ALE_BENCH_PROBLEM_IDS", "ahc001"))
+    parser.add_argument("--problem_ids", default=os.getenv("ALE_BENCH_PROBLEM_IDS", "ahc008"))
     parser.add_argument("--train_size", type=int, default=8)
     parser.add_argument("--val_size", type=int, default=2)
     parser.add_argument("--lite_version", action=argparse.BooleanOptionalAction, default=True)
@@ -82,6 +95,14 @@ def main() -> None:
     parser.add_argument("--case_feedback_limit", type=int, default=int(os.getenv("ALE_BENCH_CASE_FEEDBACK_LIMIT", "5")))
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     args = parser.parse_args()
+    if args.lite_version:
+        unsupported = sorted(set(parse_csv(args.problem_ids)) - LITE_PROBLEM_IDS)
+        if unsupported:
+            parser.error(
+                "--lite_version only supports "
+                f"{','.join(sorted(LITE_PROBLEM_IDS))}; got unsupported problem ids: {','.join(unsupported)}. "
+                "Use --no-lite_version for the full ALE-Bench dataset."
+            )
 
     output_dir = Path(args.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
