@@ -366,7 +366,7 @@ Reward 配置：
 
 #### v2: Oracle No-progress Penalty
 
-当前实现版本，尚未训练。
+对应 run：`arc_agi3_oracle_dist_11697087`。
 
 配置变化：
 
@@ -387,21 +387,50 @@ Reward 配置：
 - exact `oracle_action_match` 与 `oracle_progress` 高度重叠：匹配 oracle next action center 后，正常情况下 plan length 会下降。
 - 因此 v2 不把 action match 作为 reward，只保留该 component 方便统计模型是否真的命中 oracle center。
 
-观察目标：
+训练结果：
 
-- no-progress penalty 是否能压低固定扫点。
-- `oracle_action_match` 是否随训练提高，用于判断模型是否更常命中 oracle center。
-- 是否能从只拿一次 `0.055` 进展到多次 oracle progress 或完成第一个 level。
+| 指标 | 结果 |
+| --- | ---: |
+| final eval `avg_score` | `-0.035` |
+| final eval `pass_at_1` | `0.0` |
+| final eval `levels_completed` | `0.0` |
+| final eval `invalid_actions` | `0.0` |
+| final eval `mean_positive_reward` | `0.055` |
+
+step 200 rollout component 汇总：
+
+| component | 16 条 trajectory 总和 | 每条 trajectory 平均 |
+| --- | ---: | ---: |
+| `oracle_progress` | `+0.800` | `+0.050` |
+| `meaningful_diff` | `+0.080` | `+0.005` |
+| `oracle_no_progress` | `-1.440` | `-0.090` |
+| `oracle_action_match` | `0.000` | `0.000` |
+
+结论：
+
+- `oracle_no_progress_penalty=-0.01` 生效，但没有改变策略形态。
+- 后期每条 trajectory 基本仍然只有一次 `(40,40)` 让 plan length 从 4 降到 3。
+- 典型总 reward 变成 `0.055 - 9 * 0.01 = -0.035`。
+- 模型接受固定负分，没有学到第二、第三个 oracle progress step。
+- `oracle_action_match=0`，但 `(40,40)` 能让 oracle plan 下降，说明 exact center match 只适合诊断，不适合作为主要 reward。
 
 #### 待评估改动
 
-下面不是新版本，只是 v2 跑完后根据结果再决定是否启用：
+下面不是新版本，只是 v2 跑完后的候选方向：
 
 | 改动 | 候选值 | 触发条件 |
 | --- | ---: | --- |
-| 提高 `oracle_distance_reward` | `0.5` | 如果 v2 能命中 oracle center，但 plan length 推进信号仍然太弱。 |
-| 加强 `oracle_no_progress_penalty` | `-0.02` | 如果 `-0.01` 仍压不住固定扫点。 |
+| 提高 `meaningful_diff_reward` | `0.01` 或 `0.02` | 如果希望模型更愿意探索能造成局部变化的区域。需要防止只学“画面变了”而不通关。 |
+| 调整 `meaningful_diff` 触发范围 | 例如降低 `max_meaningful_diff_changes` 或按 diff 区域去重 | 如果提高 `meaningful_diff_reward` 后模型转向刷大面积/重复变化。 |
+| 加强 `oracle_no_progress_penalty` | `-0.02` | 如果仍然固定扫点；但只加罚可能继续得到“固定负分”策略。 |
+| 提高 `oracle_distance_reward` | 暂不优先；如试，先小步到 `0.1` | 直接升到 `0.5` 可能把一次 `(40,40)` 奖励做大，让模型更稳定地只吃一次大 reward 后接受小罚。 |
 | 提高训练 `max_turns` | `12` 或 `16` | 如果 v2 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
+
+当前更倾向的 v3 方向是轻微提高 `meaningful_diff_reward`，例如从 `0.005` 到 `0.01`，同时保持
+`oracle_distance_reward=0.05` 和 `oracle_no_progress_penalty=-0.01`。这样做的目的不是把
+meaningful diff 当成通关目标，而是增加模型对“能造成局部变化区域”的探索概率，看看是否能在
+`(40,40)` 之后发现更多可推进状态的点击。该方案需要重点观察 `levels_completed`、
+`oracle_progress` 次数，以及是否出现只刷 diff、不推进 oracle plan 的副作用。
 
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的
 `solve_click_plan(game)`，但不要执行 oracle click。它只读取当前 env/game state，返回：
