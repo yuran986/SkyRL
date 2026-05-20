@@ -298,7 +298,7 @@ reward =
 | `invalid_action` | `invalid_action_reward` | `-0.1` | action 解析或执行失败时的直接 reward；不叠加其他 component。 |
 | `level_delta` | `level_reward` | `3.0` | 每完成一个新 level 给大正 reward。 |
 | `done` | `done_reward` | `0.0` | 环境 `done=True` 的额外 reward；当前不使用，避免和 level/success 信号重复。 |
-| `meaningful_diff` | `meaningful_diff_reward` | `0.005` | 画面发生局部变化的小辅助信号；保持很低，因为 frame 变化不等于接近通关。 |
+| `meaningful_diff` | `meaningful_diff_reward` / `ARC_AGI3_MEANINGFUL_DIFF_REWARD` | base `0.005`；v3 warm-up `0.01` | 画面发生局部变化的小辅助信号。v3 轻微提高该值，用来增加对可改变局部画面区域的探索。 |
 | `repeat_click` | `repeat_click_penalty` | `-0.02` | 当前点击与上次点击过近时惩罚，压制无意义重复点击。 |
 | `oracle_progress` | `oracle_distance_reward` / `ARC_AGI3_ORACLE_DISTANCE_REWARD` | `0.05` | oracle plan length 变短时给分，`progress_delta * oracle_distance_reward`。 |
 | `oracle_valid_action` | `oracle_distance_valid_action_reward` / `ARC_AGI3_ORACLE_DISTANCE_VALID_ACTION_REWARD` | `0.0` | 合法 action 额外奖励；当前关闭，避免只学会合法但无推进的点击。 |
@@ -329,7 +329,7 @@ else:
     progress_delta = before.plan_len - after.plan_len
 ```
 
-`meaningful_diff` 只表示画面发生局部变化，不保证更接近通关，因此保持低权重。
+`meaningful_diff` 只表示画面发生局部变化，不保证更接近通关，因此即使 v3 提高也仍保持低权重。
 
 ### Reward 历史与训练总结
 
@@ -416,21 +416,45 @@ step 200 rollout component 汇总：
 
 #### 待评估改动
 
-下面不是新版本，只是 v2 跑完后的候选方向：
+#### v3: Meaningful Diff Exploration
+
+当前准备运行版本，尚未训练。
+
+配置变化：
+
+| 参数 | 值 |
+| --- | ---: |
+| `meaningful_diff_reward` | `0.01` |
+| `oracle_distance_reward` | 保持 `0.05` |
+| `oracle_no_progress_penalty` | 保持 `-0.01` |
+| `oracle_action_match_reward` | 保持 `0.0` |
+| 训练 `max_turns` | 保持 `10` |
+
+设置原因：
+
+- v2 证明 no-progress penalty 生效，但模型仍接受固定负分，没有找到后续 oracle progress。
+- 暂不大幅提高 `oracle_distance_reward`，避免只强化一次 `(40,40)` progress 后继续吃小罚的局部策略。
+- 轻微提高 `meaningful_diff_reward`，让模型对能造成局部画面变化的区域更敏感，尝试扩大 `(40,40)` 之后的探索。
+- 该 reward 仍然低于一次 oracle progress，避免把“画面变了”本身变成主目标。
+
+观察目标：
+
+- `oracle_progress` 正步数是否从每条 trajectory 约 1 次增加。
+- `levels_completed` 是否开始大于 0。
+- 是否出现 meaningful diff 增多但 oracle plan 不下降的刷 diff 行为。
+- 如果刷 diff 明显，需要收紧 `meaningful_diff` 触发条件或回退该改动。
+
+#### 待评估改动
+
+下面不是新版本，只是 v3 跑完后的候选方向：
 
 | 改动 | 候选值 | 触发条件 |
 | --- | ---: | --- |
-| 提高 `meaningful_diff_reward` | `0.01` 或 `0.02` | 如果希望模型更愿意探索能造成局部变化的区域。需要防止只学“画面变了”而不通关。 |
+| 继续提高 `meaningful_diff_reward` | `0.02` | 如果 `0.01` 有探索改善且没有明显刷 diff。 |
 | 调整 `meaningful_diff` 触发范围 | 例如降低 `max_meaningful_diff_changes` 或按 diff 区域去重 | 如果提高 `meaningful_diff_reward` 后模型转向刷大面积/重复变化。 |
 | 加强 `oracle_no_progress_penalty` | `-0.02` | 如果仍然固定扫点；但只加罚可能继续得到“固定负分”策略。 |
 | 提高 `oracle_distance_reward` | 暂不优先；如试，先小步到 `0.1` | 直接升到 `0.5` 可能把一次 `(40,40)` 奖励做大，让模型更稳定地只吃一次大 reward 后接受小罚。 |
-| 提高训练 `max_turns` | `12` 或 `16` | 如果 v2 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
-
-当前更倾向的 v3 方向是轻微提高 `meaningful_diff_reward`，例如从 `0.005` 到 `0.01`，同时保持
-`oracle_distance_reward=0.05` 和 `oracle_no_progress_penalty=-0.01`。这样做的目的不是把
-meaningful diff 当成通关目标，而是增加模型对“能造成局部变化区域”的探索概率，看看是否能在
-`(40,40)` 之后发现更多可推进状态的点击。该方案需要重点观察 `levels_completed`、
-`oracle_progress` 次数，以及是否出现只刷 diff、不推进 oracle plan 的副作用。
+| 提高训练 `max_turns` | `12` 或 `16` | 如果 v3 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
 
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的
 `solve_click_plan(game)`，但不要执行 oracle click。它只读取当前 env/game state，返回：
