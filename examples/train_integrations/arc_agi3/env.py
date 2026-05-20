@@ -450,6 +450,13 @@ def _parsed_action_metadata(parsed: ParsedAction | None) -> dict[str, Any] | Non
     return {"name": parsed.name, "x": parsed.x, "y": parsed.y}
 
 
+def _last_action_summary(parsed: ParsedAction | None) -> str:
+    metadata = _parsed_action_metadata(parsed)
+    if metadata is None:
+        return "last_action=unparsed"
+    return f"last_action={json.dumps(metadata, separators=(',', ':'))}"
+
+
 def _diff_metadata(diff_stats: FrameDiffStats | None) -> dict[str, Any] | None:
     if diff_stats is None:
         return None
@@ -635,7 +642,7 @@ class ArcAgi3Env(BaseTextEnv):
             self.done = self.turns >= self.max_turns
 
         observation_text = self._build_observation_text(
-            action=action,
+            parsed_action=parsed,
             valid_action=valid_action,
             error=error,
             step_output=step_output,
@@ -808,7 +815,7 @@ class ArcAgi3Env(BaseTextEnv):
     def _build_observation_text(
         self,
         initial: bool = False,
-        action: str | None = None,
+        parsed_action: ParsedAction | None = None,
         valid_action: bool | None = None,
         error: str | None = None,
         step_output: Any | None = None,
@@ -861,8 +868,8 @@ class ArcAgi3Env(BaseTextEnv):
         if action_effect is not None:
             lines.append(action_effect)
         lines.extend(frame_lines)
-        if action is not None:
-            lines.append(f"last_model_output={action.strip()[:500]}")
+        if valid_action is not None:
+            lines.append(_last_action_summary(parsed_action))
             lines.append(f"last_action_valid={valid_action}")
         if error:
             lines.append(f"action_error={error}")

@@ -10,6 +10,7 @@ from examples.train_integrations.arc_agi3.env import (
     _diff_stats,
     _diff_summary,
     _format_diff_patch,
+    _last_action_summary,
     parse_model_action,
 )
 from examples.train_integrations.arc_agi3.sft_warmup.oracle_distance_reward import OracleDistanceInfo
@@ -49,6 +50,16 @@ def test_parse_text_click_action():
     assert parsed.name == "ACTION6"
     assert parsed.x == 3
     assert parsed.y == 4
+
+
+def test_last_action_summary_uses_structured_action_only():
+    parsed = ParsedAction(name="ACTION6", x=32, y=40)
+
+    summary = _last_action_summary(parsed)
+
+    assert summary == 'last_action={"name":"ACTION6","x":32,"y":40}'
+    assert "think" not in summary
+    assert "last_model_output" not in summary
 
 
 def test_click_requires_coordinates():
@@ -152,6 +163,9 @@ def _reward_env():
     env.oracle_distance_reward_enabled = False
     env.oracle_distance_reward = 0.05
     env.oracle_distance_valid_action_reward = 0.0
+    env.oracle_action_match_reward = 0.0
+    env.oracle_action_match_radius = 0
+    env.oracle_no_progress_penalty = 0.0
     env.oracle_distance_unrecoverable_penalty = -1.0
     env.oracle_distance_max_next_actions = 8
     env.last_score = 0.0

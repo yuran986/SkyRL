@@ -472,9 +472,35 @@ step 200 行为统计：
 - 策略形态没有改善：后期仍是每条 trajectory 一次 `(40,40)` progress，然后 9 次 no-progress。
 - `levels_completed`、`pass_at_1`、`success` 仍为 `0`，没有证据表明单纯提高 `meaningful_diff_reward` 带来了有效后续探索。
 
+#### v4: Observation Cleanup
+
+对应改动：`ArcAgi3Env` 的 observation 不再包含 `last_model_output`。
+
+配置变化：
+
+| 参数 | 值 |
+| --- | --- |
+| reward 参数 | 保持 v3 不变 |
+| observation `last_model_output` | 删除 |
+| observation `last_action` | 新增结构化动作摘要，例如 `last_action={"name":"ACTION6","x":40,"y":40}` |
+| rollout metadata `model_output` | 保留，仅用于离线分析 |
+
+设置原因：
+
+- 当前是完整 multi-turn context；上一轮 assistant 输出已经在 chat history 中。
+- `last_model_output` 会把上一轮 thinking 再塞进 observation，导致 `<think>No changes detected</think>` 这类短句重复污染上下文。
+- v3 后期并不是 env 没发 diff；`(40,40)` 后 observation 仍有 `frame_diff: num_changes=38 ...`，但模型下一步仍输出 `No changes detected`。
+- 因此 v4 先清理 observation 噪声，不先继续调大 reward。
+
+观察目标：
+
+- `(40,40)` 产生 `CHANGED` diff 后，下一步 thinking 是否还继续说 `No changes detected`。
+- 每条 trajectory 的 `oracle_progress` 正步数是否从约 1 次增加。
+- `levels_completed` 是否开始大于 0。
+
 #### 待评估改动
 
-下面不是新版本，只是 v3 跑完后的候选方向：
+下面是 v4 之后的候选方向：
 
 | 改动 | 候选值 | 触发条件 |
 | --- | ---: | --- |
