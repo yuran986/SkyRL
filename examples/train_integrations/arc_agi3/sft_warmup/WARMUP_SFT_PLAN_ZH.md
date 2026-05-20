@@ -414,11 +414,9 @@ step 200 rollout component 汇总：
 - 模型接受固定负分，没有学到第二、第三个 oracle progress step。
 - `oracle_action_match=0`，但 `(40,40)` 能让 oracle plan 下降，说明 exact center match 只适合诊断，不适合作为主要 reward。
 
-#### 待评估改动
-
 #### v3: Meaningful Diff Exploration
 
-当前准备运行版本，尚未训练。
+对应 run：`arc_agi3_oracle_dist_11738853`。
 
 配置变化：
 
@@ -437,12 +435,42 @@ step 200 rollout component 汇总：
 - 轻微提高 `meaningful_diff_reward`，让模型对能造成局部画面变化的区域更敏感，尝试扩大 `(40,40)` 之后的探索。
 - 该 reward 仍然低于一次 oracle progress，避免把“画面变了”本身变成主目标。
 
-观察目标：
+训练结果：
 
-- `oracle_progress` 正步数是否从每条 trajectory 约 1 次增加。
-- `levels_completed` 是否开始大于 0。
-- 是否出现 meaningful diff 增多但 oracle plan 不下降的刷 diff 行为。
-- 如果刷 diff 明显，需要收紧 `meaningful_diff` 触发条件或回退该改动。
+| 指标 | 结果 |
+| --- | ---: |
+| final eval `avg_score` | `-0.030` |
+| final eval `pass_at_1` | `0.0` |
+| final eval `levels_completed` | `0.0` |
+| final eval `invalid_actions` | `0.0` |
+| final eval `mean_positive_reward` | `0.060` |
+
+step 200 rollout component 汇总：
+
+| component | 16 条 trajectory 总和 | 每条 trajectory 平均 |
+| --- | ---: | ---: |
+| `oracle_progress` | `+0.800` | `+0.050` |
+| `meaningful_diff` | `+0.160` | `+0.010` |
+| `oracle_no_progress` | `-1.440` | `-0.090` |
+| `oracle_action_match` | `0.000` | `0.000` |
+
+step 200 行为统计：
+
+| 指标 | 结果 |
+| --- | ---: |
+| valid action no-progress steps | `144 / 160` |
+| oracle progress steps | `16 / 160` |
+| plan length 下降次数 | `16` |
+| plan length 变差次数 | `0` |
+| plan length 不变次数 | `144` |
+| 正进展点击 | `(40,40)`: `16` |
+
+结论：
+
+- `meaningful_diff_reward=0.01` 生效，把一次正步从 `0.055` 提到 `0.060`。
+- final eval `avg_score` 从 v2 的 `-0.035` 变为 `-0.030`，主要来自 `meaningful_diff` 加权变高。
+- 策略形态没有改善：后期仍是每条 trajectory 一次 `(40,40)` progress，然后 9 次 no-progress。
+- `levels_completed`、`pass_at_1`、`success` 仍为 `0`，没有证据表明单纯提高 `meaningful_diff_reward` 带来了有效后续探索。
 
 #### 待评估改动
 
@@ -450,11 +478,12 @@ step 200 rollout component 汇总：
 
 | 改动 | 候选值 | 触发条件 |
 | --- | ---: | --- |
-| 继续提高 `meaningful_diff_reward` | `0.02` | 如果 `0.01` 有探索改善且没有明显刷 diff。 |
+| 继续提高 `meaningful_diff_reward` | 暂不优先 | v3 只提高了分数，没有增加后续 oracle progress；继续提高可能强化无效画面变化。 |
 | 调整 `meaningful_diff` 触发范围 | 例如降低 `max_meaningful_diff_changes` 或按 diff 区域去重 | 如果提高 `meaningful_diff_reward` 后模型转向刷大面积/重复变化。 |
 | 加强 `oracle_no_progress_penalty` | `-0.02` | 如果仍然固定扫点；但只加罚可能继续得到“固定负分”策略。 |
 | 提高 `oracle_distance_reward` | 暂不优先；如试，先小步到 `0.1` | 直接升到 `0.5` 可能把一次 `(40,40)` 奖励做大，让模型更稳定地只吃一次大 reward 后接受小罚。 |
-| 提高训练 `max_turns` | `12` 或 `16` | 如果 v3 已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
+| 构造 oracle progress curriculum | 从已完成第一步 oracle progress 的中间状态继续训练 | v1-v3 都卡在第一步后，说明问题更像后续状态探索不足，而不是第一步奖励强度不足。 |
+| 提高训练 `max_turns` | `12` 或 `16` | 如果后续版本已能连续推进，但 10 turn 不够完成 level；该项最后考虑，避免先增加显存压力。 |
 
 实现上新增 `oracle_distance_reward.py`，复用 `ft09_oracle_solution.py` 里的
 `solve_click_plan(game)`，但不要执行 oracle click。它只读取当前 env/game state，返回：
