@@ -41,8 +41,8 @@ python examples/train_integrations/arc_agi3/visualize_rollouts.py \
 ```bash
 python examples/train_integrations/arc_agi3/visualize_rollouts.py \
   "$EXPORT_PATH" \
-  --step-from 100 \
-  --step-to 110 \
+  --step-from 1 \
+  --step-to 100 \
   --trajectories-per-file 16 \
   -o "$EXPORT_PATH/rollout_viewer.html"
 ```
@@ -52,9 +52,9 @@ python examples/train_integrations/arc_agi3/visualize_rollouts.py \
 ```bash
 python examples/train_integrations/arc_agi3/visualize_rollouts.py \
   "$EXPORT_PATH" \
-  --latest-files 20 \
-  --trajectories-per-file 4 \
-  -o "$EXPORT_PATH/rollout_viewer_latest20.html"
+  --latest-files 50 \
+  --trajectories-per-file 16 \
+  -o "$EXPORT_PATH/rollout_viewer_latest50.html"
 ```
 
 限制总展示 trajectory 数：
