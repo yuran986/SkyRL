@@ -52,12 +52,12 @@ def test_parse_text_click_action():
     assert parsed.y == 4
 
 
-def test_last_action_summary_uses_structured_action_only():
+def test_last_action_summary_is_short_action_label():
     parsed = ParsedAction(name="ACTION6", x=32, y=40)
 
     summary = _last_action_summary(parsed)
 
-    assert summary == 'last_action={"name":"ACTION6","x":32,"y":40}'
+    assert summary == "ACTION6 at (32,40)"
     assert "think" not in summary
     assert "last_model_output" not in summary
 
@@ -70,13 +70,13 @@ def test_click_requires_coordinates():
 def test_action_effect_summary_marks_no_change():
     diff = FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
 
-    assert _action_effect_summary(diff) == "last_action_effect=NO_CHANGE"
+    assert _action_effect_summary(diff) == "The last action did not change the frame."
 
 
 def test_action_effect_summary_marks_changed_area():
     diff = FrameDiffStats(num_changes=8, bbox=(1, 2, 3, 4), color_changes=[], examples=[])
 
-    assert _action_effect_summary(diff) == "last_action_effect=CHANGED num_changes=8 bbox=(1,2)-(3,4)"
+    assert _action_effect_summary(diff) == "The last action changed the frame in rectangle (1,2)-(3,4)."
 
 
 def test_diff_stats_splits_components_by_region_and_color_change():
@@ -105,7 +105,7 @@ def test_diff_stats_splits_components_by_region_and_color_change():
     ]
 
 
-def test_diff_summary_includes_component_summary():
+def test_diff_summary_is_short_and_actionable():
     diff = FrameDiffStats(
         num_changes=2,
         bbox=(0, 0, 1, 0),
@@ -126,8 +126,7 @@ def test_diff_summary_includes_component_summary():
 
     summary = _diff_summary(diff)
 
-    assert "components=" in summary
-    assert "'change': 'off-white->light gray'" in summary
+    assert summary == "Diff: 2 cells changed, bbox=(0,0)-(1,0), colors=off-white->light gray:2."
 
 
 def test_format_diff_patch_includes_before_after_and_delta():
@@ -143,11 +142,102 @@ def test_format_diff_patch_includes_before_after_and_delta():
 
     patch = _format_diff_patch(prev, cur, diff, radius=0)
 
-    assert "changed_patch_before: x=1..1 y=0..1" in patch
-    assert "changed_patch: x=1..1 y=0..1" in patch
     assert "changed_patch_delta: x=1..1 y=0..1" in patch
     assert "encoding=changed_after_hex_unchanged_dot" in patch
     assert "y00: 2" in patch
+    assert "changed_patch_before" not in patch
+    assert "changed_patch:" not in patch
+
+
+def _observation_env():
+    env = ArcAgi3Env.__new__(ArcAgi3Env)
+    env.task_id = "ft09"
+    env.turns = 2
+    env.max_turns = 10
+    env.levels_to_complete = 6
+    env.frame_observation_mode = "initial_full_then_diff"
+    env.max_full_frame_rows = 64
+    env.max_diff_examples = 32
+    env.patch_radius = 0
+    env.last_frame = [
+        [1, 1, 1],
+        [1, 1, 1],
+    ]
+    env.last_levels_completed = 0
+    env.env = SimpleNamespace(
+        observation_space=SimpleNamespace(frame=env.last_frame, levels_completed=0, score=0.0, state="NOT_FINISHED"),
+        action_space=["ACTION6"],
+    )
+    return env
+
+
+def test_observation_mentions_level_up_naturally():
+    env = _observation_env()
+    step_output = SimpleNamespace(
+        frame=[
+            [1, 1, 1],
+            [1, 1, 1],
+        ],
+        levels_completed=1,
+        score=0.0,
+        state="NOT_FINISHED",
+    )
+    diff = FrameDiffStats(num_changes=0, bbox=None, color_changes=[], examples=[])
+
+    text = env._build_observation_text(
+        parsed_action=ParsedAction(name="ACTION6", x=40, y=40),
+        valid_action=True,
+        step_output=step_output,
+        diff_stats=diff,
+        previous_levels_completed=0,
+    )
+
+    assert "Congratulations! Level up to 1/6." in text
+    assert "ACTION6 at (40,40) caused no visible change." in text
+    assert "last_model_output" not in text
+    assert "Current state:" not in text
+    assert "Available action:" not in text
+
+
+def test_observation_describes_diff_with_last_action():
+    env = _observation_env()
+    step_output = SimpleNamespace(
+        frame=[
+            [1, 2, 1],
+            [1, 2, 1],
+        ],
+        levels_completed=0,
+        score=0.0,
+        state="NOT_FINISHED",
+    )
+    diff = _diff_stats(env.last_frame, step_output.frame)
+
+    text = env._build_observation_text(
+        parsed_action=ParsedAction(name="ACTION6", x=32, y=40),
+        valid_action=True,
+        step_output=step_output,
+        diff_stats=diff,
+        previous_levels_completed=0,
+    )
+
+    assert "ACTION6 at (32,40) changed the screen." in text
+    assert "Diff: 2 cells changed" in text
+    assert "changed_patch_delta:" in text
+    assert "changed_patch:" not in text
+    assert "last_action=" not in text
+
+
+def test_initial_observation_keeps_only_setup_context():
+    env = _observation_env()
+
+    text = env._build_observation_text(initial=True)
+
+    assert text.startswith("Initial observation.")
+    assert "Goal: complete 6 levels." in text
+    assert "Available action: ACTION6." in text
+    assert "Coordinates are 0..63." in text
+    assert "current_frame:" in text
+    assert "Respond with brief reasoning" not in text
 
 
 def _reward_env():

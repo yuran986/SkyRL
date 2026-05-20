@@ -11,9 +11,9 @@ DEFAULT_PROMPT = (
     "You are playing one ARC-AGI-3 game. Infer the rule from observations and choose one action at a time. "
     "Respond with brief reasoning in <think>...</think>, then exactly one executable action in "
     "<action>...</action>. Keep <think> concise. The environment executes only the <action> tag. "
-    "Observation fields: frame_diff compares the frame after your last action with the previous frame; "
-    "components split changed cells by connected region and before->after color change; "
-    "changed_patch_before/changed_patch/changed_patch_delta show local before/current/delta crops; use these to infer which clicks changed the game. "
+    "Observations only report new feedback from your last action; when there is a visible diff, "
+    "changed_patch_delta shows the local changed crop. "
+    "Use those changes to infer which clicks move the game forward. "
     "Simple actions look like <action>ACTION1</action>. "
     'For coordinate clicks use JSON inside <action>, for example <action>{"action":"ACTION6","x":32,"y":32}</action>. '
     "Never output bare JSON outside <action>."

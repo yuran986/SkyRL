@@ -41,10 +41,7 @@ FRAME_COLOR_NAMES = {
 }
 
 OBSERVATION_GUIDE = (
-    "observation_guide: frame_diff compares the current frame after your last action with the previous frame; "
-    "num_changes is the number of changed cells; bbox is the changed rectangle; examples list changed cells as "
-    "{x,y,before,after}; components split contiguous cells with the same before->after color change; "
-    "changed_patch_before/changed_patch/changed_patch_delta show local before/current/delta crops; coordinates are 0..63."
+    "After each click, I will only report the new feedback from that click."
 )
 
 
@@ -283,20 +280,16 @@ def _format_diff_patch(
     prev_frame_like: Any, cur_frame_like: Any, diff_stats: FrameDiffStats | None, radius: int
 ) -> str:
     if diff_stats is None or diff_stats.bbox is None or diff_stats.num_changes == 0:
-        return "changed_patch: none"
+        return "changed_patch_delta: none"
     prev_grid = _grid_from_frame(prev_frame_like)
     cur_grid = _grid_from_frame(cur_frame_like)
     if prev_grid is None or cur_grid is None:
-        return "changed_patch: unavailable"
+        return "changed_patch_delta: unavailable"
     x1, y1, x2, y2 = diff_stats.bbox
     cur_patch, (cx1, cy1, cx2, cy2) = _crop_grid(cur_grid, x1 - radius, y1 - radius, x2 + radius, y2 + radius)
     prev_patch, _ = _crop_grid(prev_grid, cx1, cy1, cx2, cy2)
     return "\n".join(
         [
-            f"changed_patch_before: x={cx1}..{cx2} y={cy1}..{cy2}",
-            _format_hex_rows(prev_patch, y_offset=cy1),
-            f"changed_patch: x={cx1}..{cx2} y={cy1}..{cy2}",
-            _format_hex_rows(cur_patch, y_offset=cy1),
             f"changed_patch_delta: x={cx1}..{cx2} y={cy1}..{cy2}",
             _format_delta_rows(prev_patch, cur_patch, y_offset=cy1),
         ]
@@ -414,30 +407,26 @@ def _component_summary(components: list[dict[str, Any]], max_components: int = 6
 
 def _diff_summary(diff_stats: FrameDiffStats | None) -> str:
     if diff_stats is None:
-        return "frame_diff: unavailable"
+        return "Diff: unavailable."
     if diff_stats.num_changes == 0:
-        return "frame_diff: num_changes=0"
+        return "caused no visible change."
     assert diff_stats.bbox is not None
     color_text = ", ".join(
         f"{_color_name(before)}->{_color_name(after)}:{count}"
         for before, after, count in diff_stats.color_changes
     )
     x1, y1, x2, y2 = diff_stats.bbox
-    return (
-        f"frame_diff: num_changes={diff_stats.num_changes} "
-        f"bbox=({x1},{y1})-({x2},{y2}) "
-        f"colors={color_text} {_component_summary(diff_stats.components)}"
-    )
+    return f"Diff: {diff_stats.num_changes} cells changed, bbox=({x1},{y1})-({x2},{y2}), colors={color_text}."
 
 
 def _action_effect_summary(diff_stats: FrameDiffStats | None) -> str:
     if diff_stats is None:
-        return "last_action_effect=UNKNOWN"
+        return "The effect of the last action is unknown."
     if diff_stats.num_changes == 0:
-        return "last_action_effect=NO_CHANGE"
+        return "The last action did not change the frame."
     assert diff_stats.bbox is not None
     x1, y1, x2, y2 = diff_stats.bbox
-    return f"last_action_effect=CHANGED num_changes={diff_stats.num_changes} bbox=({x1},{y1})-({x2},{y2})"
+    return f"The last action changed the frame in rectangle ({x1},{y1})-({x2},{y2})."
 
 
 def _color_name(value: Any) -> str:
@@ -451,10 +440,11 @@ def _parsed_action_metadata(parsed: ParsedAction | None) -> dict[str, Any] | Non
 
 
 def _last_action_summary(parsed: ParsedAction | None) -> str:
-    metadata = _parsed_action_metadata(parsed)
-    if metadata is None:
-        return "last_action=unparsed"
-    return f"last_action={json.dumps(metadata, separators=(',', ':'))}"
+    if parsed is None:
+        return "The last action"
+    if parsed.name == "ACTION6" and parsed.x is not None and parsed.y is not None:
+        return f"ACTION6 at ({parsed.x},{parsed.y})"
+    return parsed.name
 
 
 def _diff_metadata(diff_stats: FrameDiffStats | None) -> dict[str, Any] | None:
@@ -608,6 +598,7 @@ class ArcAgi3Env(BaseTextEnv):
         diff_metadata = None
         current_frame = None
         oracle_before = self._oracle_distance_info()
+        previous_levels_completed = self.last_levels_completed
         try:
             parsed = parse_model_action(action)
             step_output = self._apply_action(parsed)
@@ -647,6 +638,7 @@ class ArcAgi3Env(BaseTextEnv):
             error=error,
             step_output=step_output,
             diff_stats=diff_stats,
+            previous_levels_completed=previous_levels_completed,
         )
         diff_metadata = _diff_metadata(diff_stats)
         if diff_metadata is not None:
@@ -820,15 +812,13 @@ class ArcAgi3Env(BaseTextEnv):
         error: str | None = None,
         step_output: Any | None = None,
         diff_stats: FrameDiffStats | None = None,
+        previous_levels_completed: int | None = None,
     ) -> str:
         source = step_output if step_output is not None else getattr(self.env, "observation_space", None)
-        state = _enum_name(getattr(source, "state", None))
         levels_completed = self._read_levels_completed(source)
-        score = self._read_score(source)
         current_frame = _to_plain(getattr(source, "frame", None))
-        action_effect = None
         if initial:
-            diff = "frame_diff: initial"
+            diff = "This is the initial observation."
             frame_lines = self._frame_observation_lines(
                 initial=initial,
                 previous_frame=None,
@@ -841,7 +831,6 @@ class ArcAgi3Env(BaseTextEnv):
                 self.last_frame, current_frame, max_examples=self.max_diff_examples
             )
             diff = _diff_summary(diff_stats)
-            action_effect = _action_effect_summary(diff_stats)
             frame_lines = self._frame_observation_lines(
                 initial=initial,
                 previous_frame=self.last_frame,
@@ -853,30 +842,33 @@ class ArcAgi3Env(BaseTextEnv):
             self.last_frame = current_frame
 
         action_space = self._action_space_text()
-        lines = [
-            f"task_id={self.task_id}",
-            f"turn={self.turns}/{self.max_turns}",
-            f"state={state}",
-            f"score={score}",
-            f"levels_completed={levels_completed}/{self.levels_to_complete}",
-            f"available_actions={action_space}",
-        ]
-        if initial and self.frame_observation_mode != "none":
+        if initial:
+            lines = [
+                "Initial observation.",
+                f"Goal: complete {self.levels_to_complete} levels.",
+                f"Available action: {action_space}.",
+                "Coordinates are 0..63.",
+            ]
             lines.append(OBSERVATION_GUIDE)
-            lines.append(_format_color_legend())
-        lines.append(diff)
-        if action_effect is not None:
-            lines.append(action_effect)
+            if self.frame_observation_mode != "none":
+                lines.append(_format_color_legend())
+        else:
+            lines = []
+            if (
+                previous_levels_completed is not None
+                and levels_completed > previous_levels_completed
+            ):
+                lines.append(f"Congratulations! Level up to {levels_completed}/{self.levels_to_complete}.")
+            action_label = _last_action_summary(parsed_action)
+            if valid_action:
+                if diff_stats is not None and diff_stats.num_changes > 0:
+                    lines.append(f"{action_label} changed the screen.")
+                    lines.append(diff)
+                else:
+                    lines.append(f"{action_label} {diff}")
+            else:
+                lines.append(f"The last action could not be executed: {error or 'invalid action'}.")
         lines.extend(frame_lines)
-        if valid_action is not None:
-            lines.append(_last_action_summary(parsed_action))
-            lines.append(f"last_action_valid={valid_action}")
-        if error:
-            lines.append(f"action_error={error}")
-        lines.append(
-            'Respond with brief reasoning in <think>...</think>, then exactly one next action in <action>...</action>. '
-            'Use {"action":"ACTION6","x":32,"y":32} inside <action> for coordinate clicks.'
-        )
         return "\n".join(lines)
 
     def _frame_observation_lines(
@@ -896,11 +888,6 @@ class ArcAgi3Env(BaseTextEnv):
             include_full_frame = True
         elif mode == "initial_full_then_diff":
             include_full_frame = initial
-            include_full_frame = include_full_frame or (
-                self.full_frame_interval > 0 and self.turns > 0 and self.turns % self.full_frame_interval == 0
-            )
-            include_full_frame = include_full_frame or levels_completed > self.last_levels_completed
-            include_full_frame = include_full_frame or self.done
         else:
             include_full_frame = initial
 
@@ -915,8 +902,9 @@ class ArcAgi3Env(BaseTextEnv):
 
     def _action_space_text(self) -> str:
         available_actions = sorted(self._allowed_action_names())
-        raw_action_space = repr(getattr(self.env, "action_space", None))
-        return f"{available_actions}; raw={raw_action_space}"
+        if not available_actions:
+            return "no listed actions"
+        return ", ".join(available_actions)
 
     def _allowed_action_names(self) -> set[str]:
         raw_action_space = getattr(self.env, "action_space", None)

@@ -482,7 +482,10 @@ step 200 行为统计：
 | --- | --- |
 | reward 参数 | 保持 v3 不变 |
 | observation `last_model_output` | 删除 |
-| observation `last_action` | 新增结构化动作摘要，例如 `last_action={"name":"ACTION6","x":40,"y":40}` |
+| observation 初始帧 | 只在初始 observation 给 goal、available action、坐标范围、color legend、full frame |
+| observation no diff | 后续只给一句，例如 `ACTION6 at (32,32) caused no visible change.` |
+| observation diff | 后续只说明上一步 action 造成可见变化、简短 diff 摘要，并只给 `changed_patch_delta` |
+| observation level up | 若 `levels_completed` 提升，明确写 `Congratulations! Level up to 1/6.` |
 | rollout metadata `model_output` | 保留，仅用于离线分析 |
 
 设置原因：
