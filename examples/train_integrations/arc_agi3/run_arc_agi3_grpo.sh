@@ -32,6 +32,7 @@ fi
 : "${N_SAMPLES_PER_PROMPT:=5}"
 : "${TRAIN_BATCH_SIZE:=8}"
 : "${POLICY_MINI_BATCH_SIZE:=8}"
+: "${KL_LOSS_COEF:=0.001}"
 : "${MAX_INPUT_LENGTH:=8192}"
 : "${MAX_GENERATE_LENGTH:=256}"
 : "${GPU_MEMORY_UTILIZATION:=0.5}"
@@ -67,6 +68,7 @@ echo "ARC-AGI-3 python: $PYTHON_BIN"
 echo "ARC-AGI-3 colocate_all: $COLOCATE_ALL"
 echo "ARC-AGI-3 train GPUs: $NUM_GPUS"
 echo "ARC-AGI-3 inference engines: $INFERENCE_NUM_ENGINES"
+echo "ARC-AGI-3 KL loss coef: $KL_LOSS_COEF"
 if [ -n "$SKYRL_FORCE_BROADCAST_WEIGHT_SYNC" ]; then
   echo "ARC-AGI-3 force broadcast weight sync: $SKYRL_FORCE_BROADCAST_WEIGHT_SYNC"
 fi
@@ -81,7 +83,7 @@ fi
   data.val_data="['$DATA_DIR/validation.parquet']" \
   trainer.algorithm.advantage_estimator="grpo" \
   trainer.algorithm.use_kl_loss=true \
-  trainer.algorithm.kl_loss_coef=0.001 \
+  trainer.algorithm.kl_loss_coef=$KL_LOSS_COEF \
   trainer.algorithm.grpo_norm_by_std=true \
   trainer.policy.model.path="$MODEL_PATH" \
   trainer.placement.colocate_all=$COLOCATE_ALL \

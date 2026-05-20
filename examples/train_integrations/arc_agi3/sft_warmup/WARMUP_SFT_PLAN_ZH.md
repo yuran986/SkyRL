@@ -481,6 +481,7 @@ step 200 行为统计：
 | 参数 | 值 |
 | --- | --- |
 | reward 参数 | 保持 v3 不变 |
+| KL loss | `trainer.algorithm.use_kl_loss=true`，warm-up 默认 `KL_LOSS_COEF=0.01` |
 | observation `last_model_output` | 删除 |
 | observation 初始帧 | 只在初始 observation 给 goal、available action、坐标范围、color legend、full frame |
 | observation no diff | 后续只给一句，例如 `ACTION6 at (32,32) caused no visible change.` |
@@ -494,12 +495,14 @@ step 200 行为统计：
 - `last_model_output` 会把上一轮 thinking 再塞进 observation，导致 `<think>No changes detected</think>` 这类短句重复污染上下文。
 - v3 后期并不是 env 没发 diff；`(40,40)` 后 observation 仍有 `frame_diff: num_changes=38 ...`，但模型下一步仍输出 `No changes detected`。
 - 因此 v4 先清理 observation 噪声，不先继续调大 reward。
+- base GRPO 脚本原本已启用 KL loss，但默认 `kl_loss_coef=0.001` 偏弱；v4 warm-up 提到 `0.01`，用于减轻策略向短 thinking/固定扫点坍缩。
 
 观察目标：
 
 - `(40,40)` 产生 `CHANGED` diff 后，下一步 thinking 是否还继续说 `No changes detected`。
 - 每条 trajectory 的 `oracle_progress` 正步数是否从约 1 次增加。
 - `levels_completed` 是否开始大于 0。
+- 同时关注 `policy_kl` / KL 相关日志，若探索明显被压死，再把 `KL_LOSS_COEF` 回调到 `0.003` 或 `0.005`。
 
 #### 待评估改动
 
