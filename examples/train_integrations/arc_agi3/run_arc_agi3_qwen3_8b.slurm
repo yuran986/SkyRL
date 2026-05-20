@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:a6000:4
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=256G
+#SBATCH --mem=384G
 #SBATCH --time=08:00:00
 #SBATCH --output=/home/users/yz1051/skyrl_logs/arc_agi3/slurm-%x_%j.out
 #SBATCH --mail-type=END,FAIL
@@ -92,6 +92,7 @@ RUN_ID="$RUN_ID" \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
   trainer.epochs=10 \
   trainer.eval_before_train=false \
+  trainer.policy.fsdp_config.cpu_offload=true \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.micro_forward_batch_size_per_gpu=1 \
   trainer.max_ckpts_to_keep=2 \
