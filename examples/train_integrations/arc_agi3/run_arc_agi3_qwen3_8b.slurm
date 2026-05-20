@@ -90,7 +90,7 @@ EVAL_INTERVAL=10 \
 RUN_NAME=arc_agi3_qwen3_8b_structured_diff \
 RUN_ID="$RUN_ID" \
 bash examples/train_integrations/arc_agi3/run_arc_agi3_grpo.sh \
-  trainer.epochs=25 \
+  trainer.epochs=10 \
   trainer.eval_before_train=false \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.micro_forward_batch_size_per_gpu=1 \
