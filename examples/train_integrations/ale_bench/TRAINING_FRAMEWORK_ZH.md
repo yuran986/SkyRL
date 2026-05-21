@@ -230,6 +230,21 @@ bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 
 因此 ALE-Bench 的主要瓶颈不是动作解析，而是上下文长度、代码生成长度、Docker judge 吞吐和 reward 方差。
 
+## Rollout Viewer
+
+ALE-Bench 不适合直接复用 `arc_agi3` 的 viewer。`arc_agi3` viewer 主要看 frame、action 和 puzzle 状态；ALE-Bench 的关键信息是一次提交的源码、public judge 结果、case 反馈、reward 和编译/运行错误。
+
+训练完成后可以从 SkyRL export 目录生成静态 HTML：
+
+```bash
+cd /home/users/yz1051/SkyRL
+python examples/train_integrations/ale_bench/visualize_rollouts.py \
+  /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622 \
+  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/ale_rollout_viewer.html
+```
+
+这个脚本会读取 `dumped_rollouts/*_rollouts.jsonl` 和 `dumped_evals/global_step_*_evals/aggregated_results.jsonl`，展示每个 global step 的平均 reward、AC/CE/RE/WA/TLE 统计、错误分桶、抽取出的代码、原始模型输出和 public case message。大 run 可以用 `--latest-files 20`、`--step-from 30` 或 `--step-to 40` 限制读取范围。
+
 ## 当前限制与后续方向
 
 当前实现是最小可训练版本，主要限制如下：
@@ -248,4 +263,4 @@ bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 - 加入 baseline solution 或 problem-specific scaffold。
 - 多轮时回传更有用的 public case stderr、局部可视化或统计特征。
 - 增加离线 smoke rollout，自动验证一个 trivial solution 能被 judge 处理。
-- 将训练日志中的 `result` metadata 做专门可视化，方便比较每轮 public score。
+- 继续扩展 viewer，例如加入跨 run 对比、按 problem_id 聚合和更细的 case stderr 分析。

@@ -61,3 +61,16 @@ bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 ```
 
 Useful overrides: `MODEL_PATH`, `NUM_GPUS`, `MAX_INPUT_LENGTH`, `MAX_GENERATE_LENGTH`, `MAX_ENV_WORKERS`, `ALE_BENCH_CODE_LANGUAGE`, `ALE_BENCH_JUDGE_VERSION`, and container backend variables.
+
+## Visualize Rollouts
+
+ALE-Bench rollouts do not use the ARC-AGI3 frame/action viewer. Generate the ALE-specific static viewer from a SkyRL export directory:
+
+```sh
+cd /home/users/yz1051/SkyRL
+python examples/train_integrations/ale_bench/visualize_rollouts.py \
+  /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622 \
+  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/ale_rollout_viewer.html
+```
+
+The viewer reads `dumped_rollouts/*_rollouts.jsonl` and `dumped_evals/global_step_*_evals/aggregated_results.jsonl`. It shows reward curves, judge-result counts, error buckets, extracted source code, model output, and public case feedback. Use `--latest-files`, `--step-from`, or `--step-to` to keep very large runs manageable.
