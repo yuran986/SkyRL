@@ -64,13 +64,15 @@ Useful overrides: `MODEL_PATH`, `NUM_GPUS`, `MAX_INPUT_LENGTH`, `MAX_GENERATE_LE
 
 ## Visualize Rollouts
 
-ALE-Bench rollouts do not use the ARC-AGI3 frame/action viewer. Generate the ALE-specific static viewer from a SkyRL export directory:
+ALE-Bench uses an ARC-AGI3-style static viewer with the same basic layout: header stats, filters, a left trajectory list, a right detail pane, rollout curves, and a floating inspection panel. The ALE adapter replaces frame/action inspection with source-code, judge-result, and public-case inspection.
 
 ```sh
 cd /home/users/yz1051/SkyRL
 python examples/train_integrations/ale_bench/visualize_rollouts.py \
   /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622 \
-  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/ale_rollout_viewer.html
+  --latest-files 20 \
+  --trajectories-per-file 4 \
+  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/rollout_viewer.html
 ```
 
-The viewer reads `dumped_rollouts/*_rollouts.jsonl` and `dumped_evals/global_step_*_evals/aggregated_results.jsonl`. It shows reward curves, judge-result counts, error buckets, extracted source code, model output, and public case feedback. Use `--latest-files`, `--step-from`, or `--step-to` to keep very large runs manageable.
+The curves scan all `dumped_rollouts/*_rollouts.jsonl` files, while the trajectory detail list can be sampled with `--latest-files`, `--trajectories-per-file`, `--step-from`, or `--step-to`. The viewer also reads `dumped_evals/global_step_*_evals/aggregated_results.jsonl` when present.

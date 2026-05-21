@@ -232,7 +232,7 @@ bash examples/train_integrations/ale_bench/run_ale_bench_grpo.sh
 
 ## Rollout Viewer
 
-ALE-Bench 不适合直接复用 `arc_agi3` 的 viewer。`arc_agi3` viewer 主要看 frame、action 和 puzzle 状态；ALE-Bench 的关键信息是一次提交的源码、public judge 结果、case 反馈、reward 和编译/运行错误。
+ALE-Bench 的 viewer 现在按 `arc_agi3` viewer 的基本形态实现：顶部统计和过滤器、左侧 trajectory list、右侧详情页、Training Curves、以及右下角浮动检查面板。不同点只是检查对象不同：`arc_agi3` 看 frame/action，ALE-Bench 看源码、public judge、case 反馈、reward 和编译/运行错误。
 
 训练完成后可以从 SkyRL export 目录生成静态 HTML：
 
@@ -240,10 +240,12 @@ ALE-Bench 不适合直接复用 `arc_agi3` 的 viewer。`arc_agi3` viewer 主要
 cd /home/users/yz1051/SkyRL
 python examples/train_integrations/ale_bench/visualize_rollouts.py \
   /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622 \
-  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/ale_rollout_viewer.html
+  --latest-files 20 \
+  --trajectories-per-file 4 \
+  -o /home/users/yz1051/exports/ale_bench/ale_bench_grpo_11743622/rollout_viewer.html
 ```
 
-这个脚本会读取 `dumped_rollouts/*_rollouts.jsonl` 和 `dumped_evals/global_step_*_evals/aggregated_results.jsonl`，展示每个 global step 的平均 reward、AC/CE/RE/WA/TLE 统计、错误分桶、抽取出的代码、原始模型输出和 public case message。大 run 可以用 `--latest-files 20`、`--step-from 30` 或 `--step-to 40` 限制读取范围。
+这个脚本会读取 `dumped_rollouts/*_rollouts.jsonl` 和 `dumped_evals/global_step_*_evals/aggregated_results.jsonl`。Training Curves 默认扫描全部 rollout 文件；左侧详情列表可以用 `--latest-files 20`、`--trajectories-per-file 4`、`--step-from 30` 或 `--step-to 40` 抽样。右下角面板用于切换查看 public case message，功能位置对应 `arc_agi3` viewer 里的 frame panel。
 
 ## 当前限制与后续方向
 
